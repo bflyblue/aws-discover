@@ -37,8 +37,9 @@ executable aws-discover
     , amazonka-s3
     , bytestring
     , conduit
-    , postgresql-simple
-    , text
+    , containers
+    , data-default
+    , hasbolt
 
   hs-source-dirs:   app
   default-language: Haskell2010

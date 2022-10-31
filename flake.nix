@@ -19,6 +19,7 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
+        # hlib = pkgs.haskell.lib;
         amazonkaLib = name:
           haskellPackages.callCabal2nix name "${amazonka}/lib/${name}";
         amazonkaService = name:
@@ -49,6 +50,7 @@
         devShells.default = haskellPackages.shellFor {
           packages = p: [ self.packages.${system}.${packageName} ];
           buildInputs = [ haskellPackages.cabal-install hls ];
+          withHoogle = true;
         };
       });
 }

@@ -1,171 +1,72 @@
-{-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE InstanceSigs #-}
-{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 
 module Main where
 
-import Amazonka
-import Amazonka.EC2 as EC2
-import Amazonka.EC2.DescribeInstances
-import qualified Amazonka.EC2.Types.Instance as Instance
+import qualified Amazonka as AWS
+import qualified Amazonka.EC2 as EC2
+import qualified Amazonka.EC2.DescribeInstances as EC2
+import qualified Amazonka.EC2.Types.Instance as Inst
+import qualified Amazonka.EC2.Types.InstanceState as InstState
 import qualified Amazonka.EC2.Types.Reservation as Reservation
-import Amazonka.ResourceGroupsTagging
-import Amazonka.ResourceGroupsTagging.GetResources
-import Amazonka.ResourceGroupsTagging.Types
 import Conduit
-import Control.Monad (void)
-import Data.ByteString.Builder
-import Data.List (intersperse)
+import Data.Default
+import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
-import qualified Data.Text as Text
-import Database.PostgreSQL.Simple
-import Database.PostgreSQL.Simple.ToField (Action (..), ToField (toField))
-import Database.PostgreSQL.Simple.Types (PGArray (..))
+import Database.Bolt ((=:))
+import qualified Database.Bolt as Bolt
 import System.IO (stdout)
 
 main :: IO ()
 main = do
-  lgr <- newLogger Info stdout
-  discoveredEnv <- newEnv discover
+  lgr <- AWS.newLogger AWS.Info stdout
+  discoveredEnv <- AWS.newEnv AWS.discover
   let env =
         discoveredEnv
-          { envLogger = lgr
-          , envRegion = Ireland
+          { AWS.envLogger = lgr
+          , AWS.envRegion = AWS.Ireland
           }
-  conn <- connectPostgreSQL "postgresql://shaun:icecream@localhost/discovery"
+  db <-
+    Bolt.connect
+      def
+        { Bolt.host = "neptune"
+        , Bolt.authType = "basic"
+        , Bolt.user = "neo4j"
+        , Bolt.password = "darkness"
+        }
   runResourceT $
     runConduit $
-      fetchAllEC2Instances env .| mapM_C (injest conn)
+      fetchAllEC2Instances env .| mapM_C (injest db)
+  Bolt.close db
 
-injest :: MonadIO m => Connection -> Instance -> m ()
-injest conn inst =
-  liftIO $
-    void $
-      execute conn "insert into ec2_instance (ebs_optimized, tags, subnet_id, public_ip_address, public_dns_name, vpc_id) values (?,?::tag[],?,?,?,?)" (toRow inst)
- where
-  toRow Instance'{..} = (ebsOptimized, PGArray . fmap toTag <$> tags, subnetId, publicIpAddress, publicDnsName, vpcId)
-  toTag (EC2.Tag' k v) = Row [k, v]
+fetchAllEC2Instances :: MonadResource m => AWS.Env -> ConduitM () EC2.Instance m ()
+fetchAllEC2Instances env = AWS.paginate env EC2.newDescribeInstances .| concatMapC extractInstances
 
-data Row = forall a. ToField a => Row [a]
+extractInstances :: EC2.DescribeInstancesResponse -> [EC2.Instance]
+extractInstances = concat . mapMaybe Reservation.instances . concat . EC2.reservations
 
-instance ToField Row where
-  toField :: Row -> Action
-  toField (Row []) = Plain (byteString "'{}'")
-  toField (Row xs) =
-    Many $
-      Plain (byteString "ROW(")
-        : (intersperse (Plain (char8 ',')) . map toField $ xs)
-        ++ [Plain (char8 ')')]
+instance Bolt.IsValue EC2.Instance where
+  toValue Inst.Instance'{..} =
+    Bolt.toValue $
+      tagMap
+        <> Map.fromList
+          [ "instanceId" =: instanceId
+          , "instanceType" =: EC2.fromInstanceType instanceType
+          , "platformDetails" =: platformDetails
+          , "privateDnsName" =: privateDnsName
+          , "privateIpAddress" =: privateIpAddress
+          , "publicDnsName" =: publicDnsName
+          , "publicIpAddress" =: publicIpAddress
+          , "state" =: EC2.fromInstanceStateName (InstState.name state)
+          , "subnetId" =: subnetId
+          , "vpcId" =: vpcId
+          ]
+   where
+    tagPair (EC2.Tag' k v) = k =: v
+    tagMap = maybe Map.empty (Map.fromList . map tagPair) tags
 
-ensureTag :: MonadIO m => Connection -> Text -> Text -> m Text
-ensureTag conn key value = liftIO $ do
-  [Only tid] <- query conn "select ensure_tag(?,?)" (key, value)
-  return tid
-
-discoverResources :: MonadResource m => Env -> m ()
-discoverResources env =
-  runConduit $
-    fetchResourceTagMappings env .| getARNs .| discoverARN env
-
-fetchResourceTagMappings :: MonadResource m => Env -> ConduitM () ResourceTagMapping m ()
-fetchResourceTagMappings env = paginate env newGetResources .| resourceTagMappings
- where
-  resourceTagMappings :: Monad m => ConduitT GetResourcesResponse ResourceTagMapping m ()
-  resourceTagMappings = concatMapC (concat . resourceTagMappingList)
-
-getARNs :: Monad m => ConduitT ResourceTagMapping Text m ()
-getARNs = concatMapC resourceARN
-
-discoverARN :: MonadResource m => Env -> ConduitT Text Void m ()
-discoverARN env = mapM_C $ \arnstr ->
-  case parseARN arnstr of
-    Just arn
-      | isAwsEC2Instance arn -> discoverEC2 env arn
-    _ -> return ()
-
-fetchAllEC2Instances :: MonadResource m => Env -> ConduitM () Instance m ()
-fetchAllEC2Instances env = paginate env newDescribeInstances .| concatMapC extractInstances
-
-fetchEC2InstanceByARN :: MonadResource m => Env -> ConduitT ARN Instance m ()
-fetchEC2InstanceByARN env = mapMC describeInstanceARN .| concatMapC extractInstances
- where
-  describeInstanceARN arn = send env (newDescribeInstances{instanceIds = Just [arnResourceId arn]})
-
-extractInstances :: DescribeInstancesResponse -> [Instance]
-extractInstances = concat . mapMaybe Reservation.instances . concat . reservations
-
-discoverEC2 :: MonadResource m => Env -> ARN -> m ()
-discoverEC2 env arn = do
-  resp <- send env (newDescribeInstances{instanceIds = Just [arnResourceId arn]})
-  liftIO $ print (maybe [] (map (maybe [] (map Instance.publicIpAddress) . Reservation.instances)) $ reservations resp)
-
-isAwsEC2Instance :: ARN -> Bool
-isAwsEC2Instance arn =
-  arnPartition arn == "aws"
-    && arnService arn == "ec2"
-    && arnResourceType arn == Just "instance"
-
-isAwsS3 :: ARN -> Bool
-isAwsS3 arn = arnPartition arn == "aws" && arnService arn == "s3"
-
-data ARN = ARN
-  { arnPartition :: Text
-  , arnService :: Text
-  , arnRegion :: Text
-  , arnAccountId :: Text
-  , arnResourceType :: Maybe Text
-  , arnResourceId :: Text
-  }
-  deriving (Show, Eq, Ord)
-
-parseARN :: Text -> Maybe ARN
-parseARN arn =
-  case Text.splitOn ":" arn of
-    [ "arn"
-      , arnPartition
-      , arnService
-      , arnRegion
-      , arnAccountId
-      , resource
-      ] ->
-        case Text.breakOn "/" resource of
-          (arnResourceId, "") ->
-            Just
-              ARN
-                { arnPartition
-                , arnService
-                , arnRegion
-                , arnAccountId
-                , arnResourceType = Nothing
-                , arnResourceId
-                }
-          (arnResourceType, arnResourceId) ->
-            Just
-              ARN
-                { arnPartition
-                , arnService
-                , arnRegion
-                , arnAccountId
-                , arnResourceType = Just arnResourceType
-                , arnResourceId = Text.tail arnResourceId
-                }
-    [ "arn"
-      , arnPartition
-      , arnService
-      , arnRegion
-      , arnAccountId
-      , arnResourceId
-      , arnResourceType
-      ] ->
-        Just
-          ARN
-            { arnPartition
-            , arnService
-            , arnRegion
-            , arnAccountId
-            , arnResourceType = Just arnResourceType
-            , arnResourceId
-            }
-    _ -> Nothing
+injest :: MonadIO m => Bolt.Pipe -> EC2.Instance -> m ()
+injest db inst =
+  Bolt.run db $
+    Bolt.queryP_ "CREATE (i:Instance $i)" (Bolt.props ["i" =: inst])
