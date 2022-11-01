@@ -16,6 +16,7 @@ import qualified Amazonka.EC2.Types.InstanceState as InstState
 import qualified Amazonka.EC2.Types.Reservation as Reservation
 import qualified Amazonka.EC2.Types.Vpc as Vpc
 import qualified Amazonka.EC2.Types.VpcCidrBlockAssociation as VpcCidr
+import qualified Amazonka.EC2.Types.VpcIpv6CidrBlockAssociation as VpcCidr
 import Conduit
 import Data.Default
 import Data.Foldable (traverse_)
@@ -61,6 +62,8 @@ discover env db = do
   Bolt.run db $ do
     Bolt.query_ "MATCH (i:Instance) DETACH DELETE i"
     Bolt.query_ "MATCH (v:Vpc) DETACH DELETE v"
+    Bolt.query_ "MATCH (c:Cidr) DETACH DELETE c"
+    Bolt.query_ "MATCH (c:Ipv6Cidr) DETACH DELETE c"
 
   runConduit $ fetchAllEc2Instances env .| mapM_C (injestInstance db)
   runConduit $ fetchAllVpcs env .| mapM_C (injestVpc db)
@@ -102,7 +105,7 @@ injestInstance db inst =
     traverse_
       ( \tags ->
           Bolt.queryP_
-            "MATCH (i) WHERE i.instanceId = $i CREATE (i)-[:HAS_TAGS]->(t:Tags $t)"
+            "MATCH (i:Instance) WHERE i.instanceId = $i CREATE (i)-[:HAS_TAGS]->(t:Tags $t)"
             (Bolt.props ["i" =: Inst.instanceId inst, "t" =: Tags tags])
       )
       (Inst.tags inst)
@@ -131,6 +134,16 @@ instance Bolt.IsValue EC2.VpcCidrBlockAssociation where
         , "associationId" =: associationId
         ]
 
+instance Bolt.IsValue EC2.VpcIpv6CidrBlockAssociation where
+  toValue VpcCidr.VpcIpv6CidrBlockAssociation'{..} =
+    Bolt.toValue $
+      Map.fromList
+        [ "networkBorderGroup" =: networkBorderGroup
+        , "ipv6Pool" =: ipv6Pool
+        , "ipv6CidrBlock" =: ipv6CidrBlock
+        , "associationId" =: associationId
+        ]
+
 injestVpc :: MonadIO m => Bolt.Pipe -> EC2.Vpc -> m ()
 injestVpc db vpc =
   Bolt.run db $ do
@@ -138,14 +151,28 @@ injestVpc db vpc =
     traverse_
       ( \tags ->
           Bolt.queryP_
-            "MATCH (v) WHERE v.vpcId = $v CREATE (v)-[:HAS_TAGS]->(t:Tags $t)"
+            "MATCH (v:Vpc) WHERE v.vpcId = $v CREATE (v)-[:HAS_TAGS]->(t:Tags $t)"
             (Bolt.props ["v" =: Vpc.vpcId vpc, "t" =: Tags tags])
       )
       (Vpc.tags vpc)
+    -- (traverse_ . traverse_)
+    --   ( \cidr ->
+    --       Bolt.queryP_
+    --         "MATCH (v:Vpc) WHERE v.vpcId = $v MERGE (c:Cidr {cidrBlock: $c.cidrBlock}) MERGE (v)-[:ASSOC_CIDR {associationId: $c.associationId}]->(c)"
+    --         (Bolt.props ["v" =: Vpc.vpcId vpc, "c" =: cidr])
+    --   )
+    --   (Vpc.cidrBlockAssociationSet vpc)
     (traverse_ . traverse_)
       ( \cidr ->
           Bolt.queryP_
-            "MATCH (v) WHERE v.vpcId = $v CREATE (v)-[:HAS_TAGS]->(t:Tags $t)"
+            "MATCH (v:Vpc) WHERE v.vpcId = $v CREATE (v)-[:ASSOC_CIDR {associationId: $c.associationId}]->(c:Cidr $c)"
             (Bolt.props ["v" =: Vpc.vpcId vpc, "c" =: cidr])
       )
       (Vpc.cidrBlockAssociationSet vpc)
+    (traverse_ . traverse_)
+      ( \cidr ->
+          Bolt.queryP_
+            "MATCH (v:Vpc) WHERE v.vpcId = $v CREATE (v)-[:ASSOC_CIDR {associationId: $c.associationId}]->(c:Ipv6Cidr $c)"
+            (Bolt.props ["v" =: Vpc.vpcId vpc, "c" =: cidr])
+      )
+      (Vpc.ipv6CidrBlockAssociationSet vpc)
