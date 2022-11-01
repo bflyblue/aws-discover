@@ -40,6 +40,8 @@ executable aws-discover
     , containers
     , data-default
     , hasbolt
+    , text
+    , yaml
 
   hs-source-dirs:   app
   default-language: Haskell2010
