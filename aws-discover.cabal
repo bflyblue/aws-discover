@@ -34,12 +34,15 @@ executable aws-discover
     , amazonka
     , amazonka-resourcegroupstagging
     , amazonka-ec2
+    , amazonka-lambda
     , amazonka-s3
+    , async
     , bytestring
     , conduit
     , containers
     , data-default
     , hasbolt
+    , resourcet
     , text
     , yaml
 
