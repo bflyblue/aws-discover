@@ -18,11 +18,15 @@ import qualified Amazonka.EC2.Types.Subnet as Subnet
 import qualified Amazonka.EC2.Types.Vpc as Vpc
 import qualified Amazonka.Lambda as Lambda
 import qualified Amazonka.Lambda.ListFunctions as ListFunctions
+import qualified Amazonka.Lambda.Types.FunctionConfiguration as FunctionConfiguration
+import qualified Amazonka.RDS as RDS
+import qualified Amazonka.RDS.DescribeDBInstances as DescribeDbInstances
+import qualified Amazonka.RDS.Types.DBInstance as DBInstance
 import Conduit
 import Control.Concurrent.Async (mapConcurrently_)
 import Control.Monad.Trans.Resource
 import Data.Default
-import Data.Foldable (traverse_)
+import Data.Foldable (toList, traverse_)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
@@ -41,13 +45,24 @@ data Config = Config
   deriving stock (Eq, Show, Generic)
   deriving anyclass (Yaml.FromJSON)
 
-newtype Tags = Tags [EC2.Tag]
+newtype Tags = Tags (Map.Map Text Bolt.Value)
+
+class IsTag a where
+  toTags :: Foldable f => f a -> Tags
+
+instance IsTag EC2.Tag where
+  toTags = Tags . Map.fromList . map tagPair . toList
+   where
+    tagPair (EC2.Tag' k v) = k =: Just v
+
+instance IsTag RDS.Tag where
+  toTags = Tags . Map.fromList . mapMaybe tagPair . toList
+   where
+    tagPair (RDS.Tag' (Just k) v) = Just $ k =: Just v
+    tagPair (RDS.Tag' Nothing _) = Nothing
 
 instance Bolt.IsValue Tags where
-  toValue (Tags tags) = Bolt.toValue $ tagMap tags
-   where
-    tagPair (EC2.Tag' k v) = k =: v
-    tagMap = Map.fromList . map tagPair
+  toValue (Tags tags) = Bolt.toValue tags
 
 discover :: Amazonka.Env -> Bolt.BoltCfg -> IO ()
 discover env boltcfg =
@@ -62,6 +77,9 @@ discover env boltcfg =
       Bolt.query_ "MATCH (l:Lambda) DETACH DELETE l"
       Bolt.query_ "MATCH (g:SecurityGroup) DETACH DELETE g"
       Bolt.query_ "MATCH (p:IpPermission) DETACH DELETE p"
+      Bolt.query_ "MATCH (i:DbInstance) DETACH DELETE i"
+      Bolt.query_ "MATCH (e:EndPoint) DETACH DELETE e"
+      Bolt.query_ "MATCH (e:Environment) DETACH DELETE e"
     mapConcurrently_
       run
       [ \db -> fetchAllEc2Instances env .| ingestInstances db
@@ -69,14 +87,19 @@ discover env boltcfg =
       , \db -> fetchAllVpcs env .| ingestVpcs db
       , \db -> fetchAllLambdas env .| ingestLambdas db
       , \db -> fetchAllSecurityGroups env .| ingestSecurityGroups db
+      , \db -> fetchAllDbInstances env .| ingestDbInstances db
       ]
     runResourceT $ withBolt boltcfg $ \db -> Bolt.run db $ do
-      Bolt.query_ "MATCH (i:Instance), (v:Vpc) WHERE i.vpcId = v.vpcId CREATE (i)-[:IN_VPC]->(v)"
-      Bolt.query_ "MATCH (l:Lambda), (v:Vpc) WHERE l.vpcId = v.vpcId CREATE (l)-[:IN_VPC]->(v)"
-      Bolt.query_ "MATCH (s:Subnet), (v:Vpc) WHERE s.vpcId = v.vpcId CREATE (v)-[:HAS_SUBNET]->(s)"
-      Bolt.query_ "MATCH (l:Lambda), (s:Subnet) WHERE s.subnetId IN l.subnetIds MERGE (l)-[:HAS_SUBNET]->(s)"
-      Bolt.query_ "MATCH (i:Instance), (g:SecurityGroup) WHERE g.groupId IN i.securityGroups MERGE (l)-[:HAS_SECURITY_GROUP]->(g)"
-      Bolt.query_ "MATCH (l:Lambda), (g:SecurityGroup) WHERE g.groupId IN l.securityGroupsIds MERGE (l)-[:HAS_SECURITY_GROUP]->(g)"
+      Bolt.query_ "MATCH (i:Instance) MATCH (v:Vpc) WHERE i.vpcId = v.vpcId CREATE (i)-[:IN_VPC]->(v)"
+      Bolt.query_ "MATCH (l:Lambda) MATCH (v:Vpc) WHERE l.vpcId = v.vpcId CREATE (l)-[:IN_VPC]->(v)"
+      Bolt.query_ "MATCH (s:Subnet) MATCH (v:Vpc) WHERE s.vpcId = v.vpcId CREATE (v)-[:HAS_SUBNET]->(s)"
+      Bolt.query_ "MATCH (l:Lambda) MATCH (s:Subnet) WHERE s.subnetId IN l.subnetIds MERGE (l)-[:HAS_SUBNET]->(s)"
+      Bolt.query_ "MATCH (i:Instance) MATCH (g:SecurityGroup) WHERE g.groupId IN i.securityGroups MERGE (i)-[:HAS_SECURITY_GROUP]->(g)"
+      Bolt.query_ "MATCH (l:Lambda) MATCH (g:SecurityGroup) WHERE g.groupId IN l.securityGroupsIds MERGE (l)-[:HAS_SECURITY_GROUP]->(g)"
+      Bolt.query_ "MATCH (d:DbInstance) MATCH (g:SecurityGroup) WHERE g.groupId IN d.vpcSecurityGroups MERGE (d)-[:HAS_SECURITY_GROUP]->(g)"
+      Bolt.query_ "MATCH (d:DbInstance) MATCH (g:SecurityGroup) WHERE g.groupId IN d.dbSecurityGroups MERGE (d)-[:HAS_SECURITY_GROUP]->(g)"
+      Bolt.query_ "MATCH (e:Environment) WHERE (ANY(prop IN KEYS(e) WHERE TOSTRING(e[prop]) ENDS WITH \"rds.amazonaws.com\")) WITH e, [prop IN KEYS(e) WHERE TOSTRING(e[prop]) ENDS WITH \"rds.amazonaws.com\"| e[prop]] AS rds MATCH (ep:Endpoint) WHERE ep.address IN rds MERGE (e)-[:REFERENCES]->(ep)"
+      Bolt.query_ "MATCH (a)-[:HAS_ENVIRONMENT]->(e)-[:REFERENCES]->(ep:Endpoint)<-[:ENDPOINT]-(d:DbInstance) MERGE (a)-[:USES_DATABASE]->(d)"
  where
   run :: MonadUnliftIO m => (Bolt.Pipe -> ConduitT () Void (ResourceT m) a) -> m a
   run c = runResourceT $ withBolt boltcfg (runConduit . c)
@@ -97,7 +120,7 @@ ingestInstances db = mapM_C ingestInstance
         ( \tags ->
             Bolt.queryP_
               "MATCH (i:Instance) WHERE i.instanceId = $i CREATE (i)-[:HAS_TAGS]->(t:Tags $t)"
-              (Bolt.props ["i" =: Instance.instanceId inst, "t" =: Tags tags])
+              (Bolt.props ["i" =: Instance.instanceId inst, "t" =: toTags tags])
         )
         (Instance.tags inst)
 
@@ -117,7 +140,7 @@ ingestVpcs db = mapM_C ingestVpc
         ( \tags ->
             Bolt.queryP_
               "MATCH (v:Vpc) WHERE v.vpcId = $v CREATE (v)-[:HAS_TAGS]->(t:Tags $t)"
-              (Bolt.props ["v" =: Vpc.vpcId vpc, "t" =: Tags tags])
+              (Bolt.props ["v" =: Vpc.vpcId vpc, "t" =: toTags tags])
         )
         (Vpc.tags vpc)
       (traverse_ . traverse_)
@@ -151,7 +174,7 @@ ingestSubnets db = mapM_C ingestSubnet
         ( \tags ->
             Bolt.queryP_
               "MATCH (s:Subnet) WHERE s.subnetId = $s CREATE (s)-[:HAS_TAGS]->(t:Tags $t)"
-              (Bolt.props ["s" =: Subnet.subnetId subnet, "t" =: Tags tags])
+              (Bolt.props ["s" =: Subnet.subnetId subnet, "t" =: toTags tags])
         )
         (Subnet.tags subnet)
 
@@ -167,6 +190,13 @@ ingestLambdas db = mapM_C ingestLambda
   ingestLambda lambda = do
     Bolt.run db $ do
       Bolt.queryP_ "CREATE (l:Lambda $l)" (Bolt.props ["l" =: lambda])
+      traverse_
+        ( \env ->
+            Bolt.queryP_
+              "MATCH (l:Lambda) WHERE l.functionArn = $l CREATE (l)-[:HAS_ENVIRONMENT]->(e:Environment $e)"
+              (Bolt.props ["l" =: FunctionConfiguration.functionArn lambda, "e" =: env])
+        )
+        (FunctionConfiguration.environment lambda)
 
 fetchAllSecurityGroups :: MonadResource m => Amazonka.Env -> ConduitM () SecurityGroup.SecurityGroup m ()
 fetchAllSecurityGroups env =
@@ -184,7 +214,7 @@ ingestSecurityGroups db = mapM_C ingestSecurityGroup
         ( \tags ->
             Bolt.queryP_
               "MATCH (g:SecurityGroup) WHERE g.groupId = $g CREATE (g)-[:HAS_TAGS]->(t:Tags $t)"
-              (Bolt.props ["g" =: SecurityGroup.groupId group, "t" =: Tags tags])
+              (Bolt.props ["g" =: SecurityGroup.groupId group, "t" =: toTags tags])
         )
         (SecurityGroup.tags group)
       (traverse_ . traverse_)
@@ -201,6 +231,40 @@ ingestSecurityGroups db = mapM_C ingestSecurityGroup
               (Bolt.props ["g" =: SecurityGroup.groupId group, "p" =: ipPerm])
         )
         (SecurityGroup.ipPermissionsEgress group)
+
+fetchAllDbInstances :: MonadResource m => Amazonka.Env -> ConduitM () DBInstance.DBInstance m ()
+fetchAllDbInstances env =
+  Amazonka.paginate env DescribeDbInstances.newDescribeDBInstances
+    .| concatMapC (concat . DescribeDbInstances.dbInstances)
+
+ingestDbInstances :: MonadIO m => Bolt.Pipe -> ConduitT DBInstance.DBInstance o m ()
+ingestDbInstances db = mapM_C ingestDbInstance
+ where
+  ingestDbInstance :: MonadIO m => DBInstance.DBInstance -> m ()
+  ingestDbInstance inst = do
+    Bolt.run db $ do
+      Bolt.queryP_ "CREATE (d:DbInstance $d)" (Bolt.props ["d" =: inst])
+      traverse_
+        ( \tags ->
+            Bolt.queryP_
+              "MATCH (d:DbInstance) WHERE d.dbInstanceArn = $d CREATE (d)-[:HAS_TAGS]->(t:Tags $t)"
+              (Bolt.props ["d" =: DBInstance.dbInstanceArn inst, "t" =: toTags tags])
+        )
+        (DBInstance.tagList inst)
+      traverse_
+        ( \e ->
+            Bolt.queryP_
+              "MATCH (d:DbInstance) WHERE d.dbInstanceArn = $d MERGE (e:Endpoint {address: $e.address, port: $e.port, hostedZoneId: $e.hostedZoneId}) MERGE (d)-[:ENDPOINT]->(e)"
+              (Bolt.props ["d" =: DBInstance.dbInstanceArn inst, "e" =: e])
+        )
+        (DBInstance.endpoint inst)
+      traverse_
+        ( \e ->
+            Bolt.queryP_
+              "MATCH (d:DbInstance) WHERE d.dbInstanceArn = $d MERGE (e:Endpoint {address: $e.address, port: $e.port, hostedZoneId: $e.hostedZoneId}) MERGE (d)-[:LISTENER_ENDPOINT]->(e)"
+              (Bolt.props ["d" =: DBInstance.dbInstanceArn inst, "e" =: e])
+        )
+        (DBInstance.listenerEndpoint inst)
 
 withBolt :: MonadResource m => Bolt.BoltCfg -> (Bolt.Pipe -> m a) -> m a
 withBolt cfg f = do

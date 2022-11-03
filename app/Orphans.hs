@@ -1,3 +1,4 @@
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeApplications #-}
@@ -5,6 +6,7 @@
 
 module Orphans where
 
+import Amazonka (fromSensitive)
 import qualified Amazonka.EC2.Types.GroupIdentifier
 import qualified Amazonka.EC2.Types.Instance
 import qualified Amazonka.EC2.Types.InstanceState
@@ -19,9 +21,19 @@ import qualified Amazonka.EC2.Types.Vpc
 import qualified Amazonka.EC2.Types.VpcCidrBlockAssociation
 import qualified Amazonka.EC2.Types.VpcIpv6CidrBlockAssociation
 import qualified Amazonka.EC2.Types.VpcState
+import qualified Amazonka.Lambda.Types.EnvironmentResponse
 import qualified Amazonka.Lambda.Types.FunctionConfiguration
+import qualified Amazonka.Lambda.Types.Layer
+import qualified Amazonka.Lambda.Types.PackageType
 import qualified Amazonka.Lambda.Types.VpcConfigResponse
+import qualified Amazonka.RDS.Types.DBInstance
+import qualified Amazonka.RDS.Types.DBInstanceRole
+import qualified Amazonka.RDS.Types.DBSecurityGroupMembership
+import qualified Amazonka.RDS.Types.Endpoint
+import qualified Amazonka.RDS.Types.ReplicaMode
+import qualified Amazonka.RDS.Types.VpcSecurityGroupMembership
 
+import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map.Strict as Map
 import Database.Bolt ((=:))
 import qualified Database.Bolt as Bolt
@@ -99,10 +111,13 @@ instance Bolt.IsValue Amazonka.Lambda.Types.FunctionConfiguration.FunctionConfig
         , "handler" =: handler
         , "role" =: role'
         , "version" =: version
+        , "revisionId" =: revisionId
+        , "layers" =: (map Amazonka.Lambda.Types.Layer.arn <$> layers)
         , "codeSize" =: codeSize
         , "vpcId" =: (Amazonka.Lambda.Types.VpcConfigResponse.vpcId <$> vpcConfig)
         , "securityGroupsIds" =: (Amazonka.Lambda.Types.VpcConfigResponse.securityGroupIds <$> vpcConfig)
         , "subnetIds" =: (Amazonka.Lambda.Types.VpcConfigResponse.subnetIds <$> vpcConfig)
+        , "packageType" =: (Amazonka.Lambda.Types.PackageType.fromPackageType <$> packageType)
         ]
 
 instance Bolt.IsValue Amazonka.EC2.Types.SecurityGroup.SecurityGroup where
@@ -136,3 +151,51 @@ instance Bolt.IsValue Amazonka.EC2.Types.IpRange.IpRange where
         , "description" =: description
         ]
 -}
+
+instance Bolt.IsValue Amazonka.Lambda.Types.EnvironmentResponse.EnvironmentResponse where
+  toValue Amazonka.Lambda.Types.EnvironmentResponse.EnvironmentResponse'{variables} =
+    Bolt.toValue $
+      maybe
+        mempty
+        (Map.fromList . HashMap.toList . fmap (Bolt.toValue . fromSensitive) . fromSensitive)
+        variables
+
+instance Bolt.IsValue Amazonka.RDS.Types.DBInstance.DBInstance where
+  toValue Amazonka.RDS.Types.DBInstance.DBInstance'{..} =
+    Bolt.toValue $
+      Map.fromList
+        [ "dbInstanceArn" =: dbInstanceArn
+        , "allocatedStorage" =: allocatedStorage
+        , "associatedRoles" =: (map Amazonka.RDS.Types.DBInstanceRole.roleArn <$> associatedRoles)
+        , "availabilityZone" =: availabilityZone
+        , "dbClusterIdentifier" =: dbClusterIdentifier
+        , "dbInstanceClass" =: dbInstanceClass
+        , "dbInstanceIdentifier" =: dbInstanceIdentifier
+        , "dbInstancePort" =: dbInstancePort
+        , "dbInstanceStatus" =: dbInstanceStatus
+        , "dbName" =: dbName
+        , "dbiResourceId" =: dbiResourceId
+        , "engine" =: engine
+        , "engineVersion" =: engineVersion
+        , "maxAllocatedStorage" =: maxAllocatedStorage
+        , "multiAZ" =: multiAZ
+        , "networkType" =: networkType
+        , "publiclyAccessible" =: publiclyAccessible
+        , "readReplicaDBInstanceIdentifiers" =: readReplicaDBInstanceIdentifiers
+        , "readReplicaSourceDBInstanceIdentifier" =: readReplicaSourceDBInstanceIdentifier
+        , "replicaMode" =: (Amazonka.RDS.Types.ReplicaMode.fromReplicaMode <$> replicaMode)
+        , "secondaryAvailabilityZone" =: secondaryAvailabilityZone
+        , "storageEncrypted" =: storageEncrypted
+        , "storageType" =: storageType
+        , "dbSecurityGroups" =: (map Amazonka.RDS.Types.DBSecurityGroupMembership.dbSecurityGroupName <$> dbSecurityGroups)
+        , "vpcSecurityGroups" =: (map Amazonka.RDS.Types.VpcSecurityGroupMembership.vpcSecurityGroupId <$> vpcSecurityGroups)
+        ]
+
+instance Bolt.IsValue Amazonka.RDS.Types.Endpoint.Endpoint where
+  toValue Amazonka.RDS.Types.Endpoint.Endpoint'{..} =
+    Bolt.toValue $
+      Map.fromList
+        [ "port" =: port
+        , "hostedZoneId" =: hostedZoneId
+        , "address" =: address
+        ]

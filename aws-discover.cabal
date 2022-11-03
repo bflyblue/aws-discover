@@ -35,6 +35,7 @@ executable aws-discover
     , amazonka-resourcegroupstagging
     , amazonka-ec2
     , amazonka-lambda
+    , amazonka-rds
     , amazonka-s3
     , async
     , bytestring
@@ -44,6 +45,7 @@ executable aws-discover
     , hasbolt
     , resourcet
     , text
+    , unordered-containers
     , yaml
 
   hs-source-dirs:   app

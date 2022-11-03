@@ -34,6 +34,7 @@
 
             amazonka-ec2 = amazonkaService "amazonka-ec2" { };
             amazonka-lambda = amazonkaService "amazonka-lambda" { };
+            amazonka-rds = amazonkaService "amazonka-rds" { };
             amazonka-resourcegroupstagging =
               amazonkaService "amazonka-resourcegroupstagging" { };
             amazonka-s3 = amazonkaService "amazonka-s3" { };
