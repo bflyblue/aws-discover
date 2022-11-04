@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main where
@@ -18,6 +19,7 @@ import qualified Amazonka.EC2.Types.Subnet as Subnet
 import qualified Amazonka.EC2.Types.Vpc as Vpc
 import qualified Amazonka.Lambda as Lambda
 import qualified Amazonka.Lambda.ListFunctions as ListFunctions
+import qualified Amazonka.Lambda.ListTags as ListTags
 import qualified Amazonka.Lambda.Types.FunctionConfiguration as FunctionConfiguration
 import qualified Amazonka.RDS as RDS
 import qualified Amazonka.RDS.DescribeDBInstances as DescribeDbInstances
@@ -26,7 +28,8 @@ import Conduit
 import Control.Concurrent.Async (mapConcurrently_)
 import Control.Monad.Trans.Resource
 import Data.Default
-import Data.Foldable (toList, traverse_)
+import Data.Foldable (traverse_)
+import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
@@ -48,18 +51,21 @@ data Config = Config
 newtype Tags = Tags (Map.Map Text Bolt.Value)
 
 class IsTag a where
-  toTags :: Foldable f => f a -> Tags
+  toTags :: a -> Tags
 
-instance IsTag EC2.Tag where
-  toTags = Tags . Map.fromList . map tagPair . toList
+instance IsTag [EC2.Tag] where
+  toTags = Tags . Map.fromList . map tagPair
    where
     tagPair (EC2.Tag' k v) = k =: Just v
 
-instance IsTag RDS.Tag where
-  toTags = Tags . Map.fromList . mapMaybe tagPair . toList
+instance IsTag [RDS.Tag] where
+  toTags = Tags . Map.fromList . mapMaybe tagPair
    where
     tagPair (RDS.Tag' (Just k) v) = Just $ k =: Just v
     tagPair (RDS.Tag' Nothing _) = Nothing
+
+instance IsTag (HashMap.HashMap Text Text) where
+  toTags = Tags . Map.fromList . HashMap.toList . fmap Bolt.toValue
 
 instance Bolt.IsValue Tags where
   toValue (Tags tags) = Bolt.toValue tags
@@ -100,6 +106,16 @@ discover env boltcfg =
       Bolt.query_ "MATCH (d:DbInstance) MATCH (g:SecurityGroup) WHERE g.groupId IN d.dbSecurityGroups MERGE (d)-[:HAS_SECURITY_GROUP]->(g)"
       Bolt.query_ "MATCH (e:Environment) WHERE (ANY(prop IN KEYS(e) WHERE TOSTRING(e[prop]) ENDS WITH \"rds.amazonaws.com\")) WITH e, [prop IN KEYS(e) WHERE TOSTRING(e[prop]) ENDS WITH \"rds.amazonaws.com\"| e[prop]] AS rds MATCH (ep:Endpoint) WHERE ep.address IN rds MERGE (e)-[:REFERENCES]->(ep)"
       Bolt.query_ "MATCH (a)-[:HAS_ENVIRONMENT]->(e)-[:REFERENCES]->(ep:Endpoint)<-[:ENDPOINT]-(d:DbInstance) MERGE (a)-[:USES_DATABASE]->(d)"
+      Bolt.query_ "MATCH (t:Tags) WHERE ANY(p IN KEYS(t) WHERE p = 'app') MERGE (a:App {name: t.app}) MERGE (t)-[:REFERENCES]->(a)"
+      Bolt.query_ "MATCH (t:Tags) WHERE ANY(p IN KEYS(t) WHERE p = 'service') MERGE (a:Service {name: t.service}) MERGE (t)-[:REFERENCES]->(a)"
+      Bolt.query_ "MATCH (t:Tags) WHERE ANY(p IN KEYS(t) WHERE p = 'system') MERGE (a:System {name: t.system}) MERGE (t)-[:REFERENCES]->(a)"
+      Bolt.query_ "MATCH (t:Tags) WHERE ANY(p IN KEYS(t) WHERE p = 'team') MERGE (a:Team {name: t.team}) MERGE (t)-[:REFERENCES]->(a)"
+      Bolt.query_ "MATCH (a)-[:HAS_TAGS]->(e)-[:REFERENCES]->(b:App) MERGE (a)-[:APP_COMPONENT]->(b)"
+      Bolt.query_ "MATCH (a)-[:HAS_TAGS]->(e)-[:REFERENCES]->(b:Service) MERGE (a)-[:SERVICE_COMPONENT]->(b)"
+      Bolt.query_ "MATCH (a)-[:HAS_TAGS]->(e)-[:REFERENCES]->(b:System) MERGE (a)-[:SYSTEM_COMPONENT]->(b)"
+      Bolt.query_ "MATCH (a)-[:HAS_TAGS]->(e)-[:REFERENCES]->(b:Team) MERGE (b)-[:OWNS]->(a)"
+      Bolt.query_ "MATCH (s)<-[:SERVICE_COMPONENT]-(x)-[:APP_COMPONENT]->(a) MERGE (s)-[:SERVICE_OF]->(a)"
+      Bolt.query_ "MATCH (s)<-[:SYSTEM_COMPONENT]-(x)-[:APP_COMPONENT]->(a) MERGE (a)-[:APP_OF]->(s)"
  where
   run :: MonadUnliftIO m => (Bolt.Pipe -> ConduitT () Void (ResourceT m) a) -> m a
   run c = runResourceT $ withBolt boltcfg (runConduit . c)
@@ -178,16 +194,29 @@ ingestSubnets db = mapM_C ingestSubnet
         )
         (Subnet.tags subnet)
 
-fetchAllLambdas :: MonadResource m => Amazonka.Env -> ConduitM () Lambda.FunctionConfiguration m ()
+fetchAllLambdas :: MonadResource m => Amazonka.Env -> ConduitM () (Lambda.FunctionConfiguration, Maybe Tags) m ()
 fetchAllLambdas env =
   Amazonka.paginate env Lambda.newListFunctions
     .| concatMapC (concat . ListFunctions.functions)
+    .| fetchLambdaTags env
 
-ingestLambdas :: MonadIO m => Bolt.Pipe -> ConduitT Lambda.FunctionConfiguration o m ()
+fetchLambdaTags :: MonadResource m => Amazonka.Env -> ConduitM Lambda.FunctionConfiguration (Lambda.FunctionConfiguration, Maybe Tags) m ()
+fetchLambdaTags env = mapMC fetchTags
+ where
+  fetchTags :: MonadResource m => Lambda.FunctionConfiguration -> m (Lambda.FunctionConfiguration, Maybe Tags)
+  fetchTags lambda = do
+    tags <-
+      maybe
+        (return Nothing)
+        (fmap ListTags.tags <$> runConduit . Amazonka.send env . Lambda.newListTags)
+        (FunctionConfiguration.functionArn lambda)
+    return (lambda, toTags <$> tags)
+
+ingestLambdas :: MonadIO m => Bolt.Pipe -> ConduitT (Lambda.FunctionConfiguration, Maybe Tags) o m ()
 ingestLambdas db = mapM_C ingestLambda
  where
-  ingestLambda :: MonadIO m => Lambda.FunctionConfiguration -> m ()
-  ingestLambda lambda = do
+  ingestLambda :: MonadIO m => (Lambda.FunctionConfiguration, Maybe Tags) -> m ()
+  ingestLambda (lambda, tags) = do
     Bolt.run db $ do
       Bolt.queryP_ "CREATE (l:Lambda $l)" (Bolt.props ["l" =: lambda])
       traverse_
@@ -197,6 +226,13 @@ ingestLambdas db = mapM_C ingestLambda
               (Bolt.props ["l" =: FunctionConfiguration.functionArn lambda, "e" =: env])
         )
         (FunctionConfiguration.environment lambda)
+      traverse_
+        ( \t ->
+            Bolt.queryP_
+              "MATCH (l:Lambda) WHERE l.functionArn = $l CREATE (l)-[:HAS_TAGS]->(t:Tags $t)"
+              (Bolt.props ["l" =: FunctionConfiguration.functionArn lambda, "t" =: t])
+        )
+        tags
 
 fetchAllSecurityGroups :: MonadResource m => Amazonka.Env -> ConduitM () SecurityGroup.SecurityGroup m ()
 fetchAllSecurityGroups env =
