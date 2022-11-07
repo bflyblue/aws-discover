@@ -38,6 +38,8 @@
             amazonka-resourcegroupstagging =
               amazonkaService "amazonka-resourcegroupstagging" { };
             amazonka-s3 = amazonkaService "amazonka-s3" { };
+            amazonka-secretsmanager =
+              amazonkaService "amazonka-secretsmanager" { };
           };
 
         };

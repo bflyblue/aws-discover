@@ -3,6 +3,8 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 
 module Main where
 
@@ -19,11 +21,13 @@ import qualified Amazonka.EC2.Types.Subnet as Subnet
 import qualified Amazonka.EC2.Types.Vpc as Vpc
 import qualified Amazonka.Lambda as Lambda
 import qualified Amazonka.Lambda.ListFunctions as ListFunctions
-import qualified Amazonka.Lambda.ListTags as ListTags
 import qualified Amazonka.Lambda.Types.FunctionConfiguration as FunctionConfiguration
 import qualified Amazonka.RDS as RDS
 import qualified Amazonka.RDS.DescribeDBInstances as DescribeDbInstances
 import qualified Amazonka.RDS.Types.DBInstance as DBInstance
+import qualified Amazonka.ResourceGroupsTagging as ResourceGroupsTagging
+import qualified Amazonka.ResourceGroupsTagging.GetResources as GetResources
+import qualified Amazonka.ResourceGroupsTagging.Types.ResourceTagMapping as ResourceTagMapping
 import Conduit
 import Control.Concurrent.Async (mapConcurrently_)
 import Control.Monad.Trans.Resource
@@ -64,6 +68,11 @@ instance IsTag [RDS.Tag] where
     tagPair (RDS.Tag' (Just k) v) = Just $ k =: Just v
     tagPair (RDS.Tag' Nothing _) = Nothing
 
+instance IsTag [ResourceGroupsTagging.Tag] where
+  toTags = Tags . Map.fromList . map tagPair
+   where
+    tagPair (ResourceGroupsTagging.Tag' k v) = k =: Just v
+
 instance IsTag (HashMap.HashMap Text Text) where
   toTags = Tags . Map.fromList . HashMap.toList . fmap Bolt.toValue
 
@@ -74,6 +83,7 @@ discover :: Amazonka.Env -> Bolt.BoltCfg -> IO ()
 discover env boltcfg =
   do
     runResourceT $ withBolt boltcfg $ \db -> Bolt.run db $ do
+      Bolt.query_ "MATCH (r:Resource) DETACH DELETE r"
       Bolt.query_ "MATCH (i:Instance) DETACH DELETE i"
       Bolt.query_ "MATCH (v:Vpc) DETACH DELETE v"
       Bolt.query_ "MATCH (c:Cidr) DETACH DELETE c"
@@ -88,7 +98,8 @@ discover env boltcfg =
       Bolt.query_ "MATCH (e:Environment) DETACH DELETE e"
     mapConcurrently_
       run
-      [ \db -> fetchAllEc2Instances env .| ingestInstances db
+      [ \db -> fetchAllResourceTagMappings env .| ingestResourceTags db
+      , \db -> fetchAllEc2Instances env .| ingestInstances db
       , \db -> fetchAllSubnets env .| ingestSubnets db
       , \db -> fetchAllVpcs env .| ingestVpcs db
       , \db -> fetchAllLambdas env .| ingestLambdas db
@@ -120,25 +131,56 @@ discover env boltcfg =
   run :: MonadUnliftIO m => (Bolt.Pipe -> ConduitT () Void (ResourceT m) a) -> m a
   run c = runResourceT $ withBolt boltcfg (runConduit . c)
 
-fetchAllEc2Instances :: MonadResource m => Amazonka.Env -> ConduitM () Instance.Instance m ()
+fetchAllResourceTagMappings :: MonadResource m => Amazonka.Env -> ConduitM () ResourceGroupsTagging.ResourceTagMapping m ()
+fetchAllResourceTagMappings env =
+  Amazonka.paginate env ResourceGroupsTagging.newGetResources
+    .| concatMapC (concat . GetResources.resourceTagMappingList)
+
+ingestResourceTags :: MonadIO m => Bolt.Pipe -> ConduitT ResourceGroupsTagging.ResourceTagMapping o m ()
+ingestResourceTags db = mapM_C ingestTags
+ where
+  ingestTags :: MonadIO m => ResourceGroupsTagging.ResourceTagMapping -> m ()
+  ingestTags mapping =
+    Bolt.run db $ do
+      traverse_
+        ( \arn -> do
+            Bolt.queryP_ "MERGE (r:Resource {resourceARN: $r})" (Bolt.props ["r" =: arn])
+            traverse_
+              ( \tags ->
+                  Bolt.queryP_
+                    "MATCH (r:Resource) WHERE r.resourceARN = $r CREATE (t:Tags $t) MERGE (r)-[:HAS_TAGS]->(t)"
+                    (Bolt.props ["r" =: arn, "t" =: toTags tags])
+              )
+              (ResourceTagMapping.tags mapping)
+        )
+        (ResourceTagMapping.resourceARN mapping)
+
+fetchAllEc2Instances :: MonadResource m => Amazonka.Env -> ConduitM () (Amazonka.Region, Text, Instance.Instance) m ()
 fetchAllEc2Instances env =
   Amazonka.paginate env DescribeInstances.newDescribeInstances
-    .| concatMapC (concat . mapMaybe Reservation.instances . concat . DescribeInstances.reservations)
+    .| reservations
+    .| instances
+ where
+  reservations :: MonadResource m => ConduitM DescribeInstances.DescribeInstancesResponse Reservation.Reservation m ()
+  reservations =
+    concatMapC (concat . DescribeInstances.reservations)
 
-ingestInstances :: MonadIO m => Bolt.Pipe -> ConduitT Instance.Instance o m ()
+  instances :: MonadResource m => ConduitM Reservation.Reservation (Amazonka.Region, Text, Instance.Instance) m ()
+  instances =
+    concatMapC $ \r ->
+      maybe [] (map (Amazonka.envRegion env,Reservation.ownerId r,)) (Reservation.instances r)
+
+ingestInstances :: MonadIO m => Bolt.Pipe -> ConduitT (Amazonka.Region, Text, Instance.Instance) o m ()
 ingestInstances db = mapM_C ingestInstance
  where
-  ingestInstance :: MonadIO m => Instance.Instance -> m ()
-  ingestInstance inst =
+  ingestInstance :: MonadIO m => (Amazonka.Region, Text, Instance.Instance) -> m ()
+  ingestInstance (region, owner, inst) =
     Bolt.run db $ do
-      Bolt.queryP_ "CREATE (i:Instance $i)" (Bolt.props ["i" =: inst])
-      traverse_
-        ( \tags ->
-            Bolt.queryP_
-              "MATCH (i:Instance) WHERE i.instanceId = $i CREATE (i)-[:HAS_TAGS]->(t:Tags $t)"
-              (Bolt.props ["i" =: Instance.instanceId inst, "t" =: toTags tags])
-        )
-        (Instance.tags inst)
+      Bolt.queryP_
+        "MERGE (r:Resource {resourceARN:$r}) ON CREATE SET r:Instance, r += $i ON MATCH SET r:Instance, r += $i"
+        (Bolt.props ["i" =: inst, "r" =: arn])
+   where
+    arn = "arn:aws:ec2:" <> Amazonka.fromRegion region <> ":" <> owner <> ":instance/" <> Instance.instanceId inst
 
 fetchAllVpcs :: MonadResource m => Amazonka.Env -> ConduitM () Vpc.Vpc m ()
 fetchAllVpcs env =
@@ -194,31 +236,21 @@ ingestSubnets db = mapM_C ingestSubnet
         )
         (Subnet.tags subnet)
 
-fetchAllLambdas :: MonadResource m => Amazonka.Env -> ConduitM () (Lambda.FunctionConfiguration, Maybe Tags) m ()
+fetchAllLambdas :: MonadResource m => Amazonka.Env -> ConduitM () Lambda.FunctionConfiguration m ()
 fetchAllLambdas env =
   Amazonka.paginate env Lambda.newListFunctions
     .| concatMapC (concat . ListFunctions.functions)
-    .| fetchLambdaTags env
 
-fetchLambdaTags :: MonadResource m => Amazonka.Env -> ConduitM Lambda.FunctionConfiguration (Lambda.FunctionConfiguration, Maybe Tags) m ()
-fetchLambdaTags env = mapMC fetchTags
- where
-  fetchTags :: MonadResource m => Lambda.FunctionConfiguration -> m (Lambda.FunctionConfiguration, Maybe Tags)
-  fetchTags lambda = do
-    tags <-
-      maybe
-        (return Nothing)
-        (fmap ListTags.tags <$> runConduit . Amazonka.send env . Lambda.newListTags)
-        (FunctionConfiguration.functionArn lambda)
-    return (lambda, toTags <$> tags)
-
-ingestLambdas :: MonadIO m => Bolt.Pipe -> ConduitT (Lambda.FunctionConfiguration, Maybe Tags) o m ()
+ingestLambdas :: MonadIO m => Bolt.Pipe -> ConduitT Lambda.FunctionConfiguration o m ()
 ingestLambdas db = mapM_C ingestLambda
  where
-  ingestLambda :: MonadIO m => (Lambda.FunctionConfiguration, Maybe Tags) -> m ()
-  ingestLambda (lambda, tags) = do
+  ingestLambda :: MonadIO m => Lambda.FunctionConfiguration -> m ()
+  ingestLambda lambda = do
     Bolt.run db $ do
       Bolt.queryP_ "CREATE (l:Lambda $l)" (Bolt.props ["l" =: lambda])
+      Bolt.queryP_
+        "MERGE (r:Resource {resourceARN:$l.functionArn}) ON CREATE SET r:Lambda, r += $l ON MATCH SET r:Lambda, r += $l"
+        (Bolt.props ["l" =: lambda])
       traverse_
         ( \env ->
             Bolt.queryP_
@@ -226,13 +258,6 @@ ingestLambdas db = mapM_C ingestLambda
               (Bolt.props ["l" =: FunctionConfiguration.functionArn lambda, "e" =: env])
         )
         (FunctionConfiguration.environment lambda)
-      traverse_
-        ( \t ->
-            Bolt.queryP_
-              "MATCH (l:Lambda) WHERE l.functionArn = $l CREATE (l)-[:HAS_TAGS]->(t:Tags $t)"
-              (Bolt.props ["l" =: FunctionConfiguration.functionArn lambda, "t" =: t])
-        )
-        tags
 
 fetchAllSecurityGroups :: MonadResource m => Amazonka.Env -> ConduitM () SecurityGroup.SecurityGroup m ()
 fetchAllSecurityGroups env =

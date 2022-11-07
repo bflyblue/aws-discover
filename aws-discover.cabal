@@ -37,6 +37,7 @@ executable aws-discover
     , amazonka-lambda
     , amazonka-rds
     , amazonka-s3
+    , amazonka-secretsmanager
     , async
     , bytestring
     , conduit
