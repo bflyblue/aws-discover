@@ -6,7 +6,7 @@
 
 module Orphans where
 
-import Amazonka (fromSensitive)
+import qualified Amazonka
 import qualified Amazonka.EC2.Types.GroupIdentifier
 import qualified Amazonka.EC2.Types.Instance
 import qualified Amazonka.EC2.Types.InstanceState
@@ -32,9 +32,13 @@ import qualified Amazonka.RDS.Types.DBSecurityGroupMembership
 import qualified Amazonka.RDS.Types.Endpoint
 import qualified Amazonka.RDS.Types.ReplicaMode
 import qualified Amazonka.RDS.Types.VpcSecurityGroupMembership
-
+import qualified Amazonka.SecretsManager.GetSecretValue
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.KeyMap as KeyMap
+import qualified Data.Foldable as Foldable
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map.Strict as Map
+import qualified Data.Scientific as Scientific
 import Database.Bolt ((=:))
 import qualified Database.Bolt as Bolt
 import Numeric.Natural (Natural)
@@ -157,7 +161,7 @@ instance Bolt.IsValue Amazonka.Lambda.Types.EnvironmentResponse.EnvironmentRespo
     Bolt.toValue $
       maybe
         mempty
-        (Map.fromList . HashMap.toList . fmap (Bolt.toValue . fromSensitive) . fromSensitive)
+        (Map.fromList . HashMap.toList . fmap (Bolt.toValue . Amazonka.fromSensitive) . Amazonka.fromSensitive)
         variables
 
 instance Bolt.IsValue Amazonka.RDS.Types.DBInstance.DBInstance where
@@ -199,3 +203,22 @@ instance Bolt.IsValue Amazonka.RDS.Types.Endpoint.Endpoint where
         , "hostedZoneId" =: hostedZoneId
         , "address" =: address
         ]
+
+instance Bolt.IsValue Amazonka.SecretsManager.GetSecretValue.GetSecretValueResponse where
+  toValue Amazonka.SecretsManager.GetSecretValue.GetSecretValueResponse'{..} =
+    Bolt.toValue $
+      Map.fromList
+        [ "name" =: name
+        , "arn" =: arn
+        , "versionId" =: versionId
+        ]
+
+instance Bolt.IsValue Aeson.Value where
+  toValue (Aeson.Object o) = Bolt.M $ Bolt.toValue <$> KeyMap.toMapText o
+  toValue (Aeson.Array xs) = Bolt.L $ Bolt.toValue <$> Foldable.toList xs
+  toValue (Aeson.String t) = Bolt.T t
+  toValue (Aeson.Number s) = case Scientific.floatingOrInteger s of
+    Left f -> Bolt.F f
+    Right i -> Bolt.I i
+  toValue (Aeson.Bool b) = Bolt.B b
+  toValue Aeson.Null = Bolt.N ()

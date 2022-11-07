@@ -31,6 +31,7 @@ executable aws-discover
   -- other-extensions:
   build-depends:
     , base
+    , aeson
     , amazonka
     , amazonka-resourcegroupstagging
     , amazonka-ec2
@@ -43,8 +44,10 @@ executable aws-discover
     , conduit
     , containers
     , data-default
+    , exceptions
     , hasbolt
     , resourcet
+    , scientific
     , text
     , unordered-containers
     , yaml
