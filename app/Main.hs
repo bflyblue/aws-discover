@@ -9,7 +9,6 @@
 module Main where
 
 import qualified Amazonka
-import qualified Amazonka.EC2 as EC2
 import qualified Amazonka.EC2.DescribeInstances as DescribeInstances
 import qualified Amazonka.EC2.DescribeSecurityGroups as DescribeSecurityGroups
 import qualified Amazonka.EC2.DescribeSubnets as DescribeSubnets
@@ -22,7 +21,6 @@ import qualified Amazonka.EC2.Types.Vpc as Vpc
 import qualified Amazonka.Lambda as Lambda
 import qualified Amazonka.Lambda.ListFunctions as ListFunctions
 import qualified Amazonka.Lambda.Types.FunctionConfiguration as FunctionConfiguration
-import qualified Amazonka.RDS as RDS
 import qualified Amazonka.RDS.DescribeDBInstances as DescribeDbInstances
 import qualified Amazonka.RDS.Types.DBInstance as DBInstance
 import qualified Amazonka.ResourceGroupsTagging as ResourceGroupsTagging
@@ -38,9 +36,7 @@ import Control.Monad.Trans.Resource
 import Data.Aeson as Aeson
 import Data.Default
 import Data.Foldable (traverse_)
-import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map.Strict as Map
-import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Data.Text.Encoding as Text
@@ -50,6 +46,7 @@ import qualified Database.Bolt as Bolt
 import GHC.Generics (Generic)
 import Orphans ()
 import System.IO (stdout)
+import Tags
 
 data Config = Config
   { host :: String
@@ -58,33 +55,6 @@ data Config = Config
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (Yaml.FromJSON)
-
-newtype Tags = Tags (Map.Map Text Bolt.Value)
-
-class IsTag a where
-  toTags :: a -> Tags
-
-instance IsTag [EC2.Tag] where
-  toTags = Tags . Map.fromList . map tagPair
-   where
-    tagPair (EC2.Tag' k v) = k =: Just v
-
-instance IsTag [RDS.Tag] where
-  toTags = Tags . Map.fromList . mapMaybe tagPair
-   where
-    tagPair (RDS.Tag' (Just k) v) = Just $ k =: Just v
-    tagPair (RDS.Tag' Nothing _) = Nothing
-
-instance IsTag [ResourceGroupsTagging.Tag] where
-  toTags = Tags . Map.fromList . map tagPair
-   where
-    tagPair (ResourceGroupsTagging.Tag' k v) = k =: Just v
-
-instance IsTag (HashMap.HashMap Text Text) where
-  toTags = Tags . Map.fromList . HashMap.toList . fmap Bolt.toValue
-
-instance Bolt.IsValue Tags where
-  toValue (Tags tags) = Bolt.toValue tags
 
 discover :: Amazonka.Env -> Bolt.BoltCfg -> IO ()
 discover env boltcfg =
@@ -127,10 +97,10 @@ discover env boltcfg =
       Bolt.query_ "MATCH (d:DbInstance) MATCH (g:SecurityGroup) WHERE g.groupId IN d.dbSecurityGroups MERGE (d)-[:HAS_SECURITY_GROUP]->(g)"
       Bolt.query_ "MATCH (e:Environment) WHERE ANY(p IN KEYS(e) WHERE TOSTRING(e[p]) ENDS WITH \"rds.amazonaws.com\") WITH e, [p IN KEYS(e) WHERE TOSTRING(e[p]) ENDS WITH \"rds.amazonaws.com\"| e[p]] AS rds MATCH (ep:Endpoint) WHERE ep.address IN rds MERGE (e)-[:REFERENCES]->(ep)"
       Bolt.query_ "MATCH (e:Environment) WHERE ANY(p IN KEYS(e) WHERE TOSTRING(e[p]) STARTS WITH \"arn:aws:secretsmanager\") UNWIND [p IN KEYS(e) WHERE TOSTRING(e[p]) STARTS WITH \"arn:aws:secretsmanager\" | e[p]] AS a MATCH (s:Secrets {arn:a}) MERGE (e)-[:REFERENCES]->(s)"
-      Bolt.query_ "MATCH (a)-[:HAS_ENVIRONMENT]->(e)-[:REFERENCES]->(ep:Endpoint)<-[:ENDPOINT]-(d:DbInstance) MERGE (a)-[:USES_DATABASE]->(d)"
+      Bolt.query_ "MATCH (a)-[:HAS_ENVIRONMENT]->(e)-[:REFERENCES]->(ep:Endpoint)<-[:ENDPOINT]-(d:DbInstance) MERGE (a)-[r:USES_DATABASE]->(d) SET r.inSecrets = true"
       Bolt.query_ "MATCH (a)-[:HAS_ENVIRONMENT]->(e)-[:REFERENCES]->(s:Secrets)-[:HAS_VALUES]->(m:SecretsMap) MERGE (a)-[:HAS_SECRETS]->(m)"
       Bolt.query_ "MATCH (m:SecretsMap) WHERE (ANY(prop IN KEYS(m) WHERE TOSTRING(m[prop]) ENDS WITH \"rds.amazonaws.com\")) WITH m, [prop IN KEYS(m) WHERE TOSTRING(m[prop]) ENDS WITH \"rds.amazonaws.com\"| m[prop]] AS rds MATCH (ep:Endpoint) WHERE ep.address IN rds MERGE (m)-[:REFERENCES]->(ep)"
-      Bolt.query_ "MATCH (a)-[:HAS_SECRETS]->(m)-[:REFERENCES]->(ep:Endpoint)<-[:ENDPOINT]-(d:DbInstance) MERGE (a)-[:USES_DATABASE]->(d)"
+      Bolt.query_ "MATCH (a)-[:HAS_SECRETS]->(m)-[:REFERENCES]->(ep:Endpoint)<-[:ENDPOINT]-(d:DbInstance) MERGE (a)-[r:USES_DATABASE]->(d) SET r.inEnvironment = true"
       Bolt.query_ "MATCH (t:Tags) WHERE ANY(p IN KEYS(t) WHERE p = 'app') MERGE (a:App {name: t.app}) MERGE (t)-[:REFERENCES]->(a)"
       Bolt.query_ "MATCH (t:Tags) WHERE ANY(p IN KEYS(t) WHERE p = 'service') MERGE (a:Service {name: t.service}) MERGE (t)-[:REFERENCES]->(a)"
       Bolt.query_ "MATCH (t:Tags) WHERE ANY(p IN KEYS(t) WHERE p = 'system') MERGE (a:System {name: t.system}) MERGE (t)-[:REFERENCES]->(a)"

@@ -146,16 +146,6 @@ instance Bolt.IsValue Amazonka.EC2.Types.IpPermission.IpPermission where
         , "userIdGroupPairs" =: (map Amazonka.EC2.Types.UserIdGroupPair.groupId <$> userIdGroupPairs)
         ]
 
-{-
-instance Bolt.IsValue Amazonka.EC2.Types.IpRange.IpRange where
-  toValue Amazonka.EC2.Types.IpRange.IpRange'{..} =
-    Bolt.toValue $
-      Map.fromList
-        [ "cidrIp" =: cidrIp
-        , "description" =: description
-        ]
--}
-
 instance Bolt.IsValue Amazonka.Lambda.Types.EnvironmentResponse.EnvironmentResponse where
   toValue Amazonka.Lambda.Types.EnvironmentResponse.EnvironmentResponse'{variables} =
     Bolt.toValue $
