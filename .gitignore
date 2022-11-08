@@ -1,3 +1,5 @@
 dist-newstyle
 result
+*.sql
+*.yaml
 .direnv
