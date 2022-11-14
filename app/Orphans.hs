@@ -11,13 +11,16 @@ import qualified Amazonka
 import Amazonka.APIGateway (EndpointType (fromEndpointType))
 import qualified Amazonka.APIGateway.Types
 import qualified Amazonka.APIGateway.Types.ApiKeySourceType
+import qualified Amazonka.APIGateway.Types.BasePathMapping
 import qualified Amazonka.APIGateway.Types.ConnectionType
+import qualified Amazonka.APIGateway.Types.DomainName
 import qualified Amazonka.APIGateway.Types.EndpointConfiguration
 import qualified Amazonka.APIGateway.Types.Integration
 import qualified Amazonka.APIGateway.Types.IntegrationType
 import qualified Amazonka.APIGateway.Types.Method
 import qualified Amazonka.APIGateway.Types.Resource
 import qualified Amazonka.APIGateway.Types.RestApi
+import qualified Amazonka.APIGateway.Types.SecurityPolicy
 import qualified Amazonka.EC2.Types.GroupIdentifier
 import qualified Amazonka.EC2.Types.Instance
 import qualified Amazonka.EC2.Types.InstanceState
@@ -268,6 +271,33 @@ instance Bolt.IsValue Amazonka.APIGateway.Types.Integration.Integration where
         , "timeoutInMillis" =: timeoutInMillis
         , "type" =: (Amazonka.APIGateway.Types.IntegrationType.fromIntegrationType <$> type')
         , "uri" =: uri
+        ]
+
+instance Bolt.IsValue Amazonka.APIGateway.Types.DomainName.DomainName where
+  toValue Amazonka.APIGateway.Types.DomainName.DomainName'{..} =
+    Bolt.toValue $
+      Map.fromList
+        [ "certificateArn" =: certificateArn
+        , "certificateName" =: certificateName
+        , -- , "certificateUploadDate" =: certificateUploadDate
+          "distributionDomainName" =: distributionDomainName
+        , "distributionHostedZoneId" =: distributionHostedZoneId
+        , "domainName" =: domainName
+        , -- , "endpointConfiguration" =: endpointConfiguration
+          "regionalCertificateArn" =: regionalCertificateArn
+        , "regionalCertificateName" =: regionalCertificateName
+        , "regionalDomainName" =: regionalDomainName
+        , "regionalHostedZoneId" =: regionalHostedZoneId
+        , "securityPolicy" =: (Amazonka.APIGateway.Types.SecurityPolicy.fromSecurityPolicy <$> securityPolicy)
+        ]
+
+instance Bolt.IsValue Amazonka.APIGateway.Types.BasePathMapping.BasePathMapping where
+  toValue Amazonka.APIGateway.Types.BasePathMapping.BasePathMapping'{..} =
+    Bolt.toValue $
+      Map.fromList
+        [ "basePath" =: basePath
+        , "restApiId" =: restApiId
+        , "stage" =: stage
         ]
 
 instance Bolt.IsValue Aeson.Value where

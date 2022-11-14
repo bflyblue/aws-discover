@@ -10,8 +10,12 @@ module Main where
 
 import qualified Amazonka
 import qualified Amazonka.APIGateway as APIGateway
+import qualified Amazonka.APIGateway.GetBasePathMappings as GetBasePathMappings
+import qualified Amazonka.APIGateway.GetDomainNames as GetDomainNames
 import qualified Amazonka.APIGateway.GetResources as ApiGetResources
 import qualified Amazonka.APIGateway.GetRestApis as GetRestApis
+import qualified Amazonka.APIGateway.Types.BasePathMapping as BasePathMapping
+import qualified Amazonka.APIGateway.Types.DomainName as DomainName
 import qualified Amazonka.APIGateway.Types.Method as Method
 import qualified Amazonka.APIGateway.Types.Resource as Resource
 import qualified Amazonka.APIGateway.Types.RestApi as RestApi
@@ -67,23 +71,22 @@ data Config = Config
 
 discover :: Amazonka.Env -> Bolt.BoltCfg -> IO ()
 discover env boltcfg = do
-  -- cleanup
+  cleanup
   mapConcurrently_
     run
-    -- [ \db -> fetchAllResourceTagMappings env .| ingestResourceTags db
-    -- , \db -> fetchAllEc2Instances env .| ingestInstances db
-    -- , \db -> fetchAllSubnets env .| ingestSubnets db
-    -- , \db -> fetchAllVpcs env .| ingestVpcs db
-    -- , \db -> fetchAllLambdas env .| ingestLambdas db
-    -- , \db -> fetchAllSecurityGroups env .| ingestSecurityGroups db
-    -- , \db -> fetchAllDbInstances env .| ingestDbInstances db
-    [ \db -> fetchAllRestApis env .| fetchAllRestApiResources env .| fetchAllRestApiMethods env .| ingestRestApis db
+    [ \db -> fetchAllResourceTagMappings env .| ingestResourceTags db
+    , \db -> fetchAllEc2Instances env .| ingestInstances db
+    , \db -> fetchAllSubnets env .| ingestSubnets db
+    , \db -> fetchAllVpcs env .| ingestVpcs db
+    , \db -> fetchAllLambdas env .| ingestLambdas db
+    , \db -> fetchAllSecurityGroups env .| ingestSecurityGroups db
+    , \db -> fetchAllDbInstances env .| ingestDbInstances db
+    , \db -> fetchAllRestApis env .| fetchAllRestApiResources env .| fetchAllRestApiMethods env .| ingestRestApis db
+    , \db -> fetchAllDomainNames env .| fetchAllBasePathMappings env .| ingestDomainNames db
     ]
+  run $ \db -> findEnvReferredSecrets db .| fetchSecrets env .| ingestSecrets db
+  relate
  where
-  -- run $ \db -> findEnvReferredSecrets db .| fetchSecrets env .| ingestSecrets db
-
-  -- relate
-
   run :: MonadUnliftIO m => (Bolt.Pipe -> ConduitT () Void (ResourceT m) a) -> m a
   run c = runResourceT $ withBolt boltcfg (runConduit . c)
 
@@ -109,6 +112,8 @@ discover env boltcfg = do
       Bolt.query_ "MATCH (r:RestResource) DETACH DELETE r"
       Bolt.query_ "MATCH (m:RestMethod) DETACH DELETE m"
       Bolt.query_ "MATCH (i:MethodIntegration) DETACH DELETE i"
+      Bolt.query_ "MATCH (d:DomainName) DETACH DELETE d"
+      Bolt.query_ "MATCH (m:BasePathMapping) DETACH DELETE m"
 
   relate :: IO ()
   relate = do
@@ -121,10 +126,13 @@ discover env boltcfg = do
       Bolt.query_ "MATCH (l:Lambda) MATCH (g:SecurityGroup) WHERE g.groupId IN l.securityGroupsIds MERGE (l)-[:HAS_SECURITY_GROUP]->(g)"
       Bolt.query_ "MATCH (d:DbInstance) MATCH (g:SecurityGroup) WHERE g.groupId IN d.vpcSecurityGroups MERGE (d)-[:HAS_SECURITY_GROUP]->(g)"
       Bolt.query_ "MATCH (d:DbInstance) MATCH (g:SecurityGroup) WHERE g.groupId IN d.dbSecurityGroups MERGE (d)-[:HAS_SECURITY_GROUP]->(g)"
+      Bolt.query_ "MATCH (dn:DomainName)--(m:BasePathMapping) MATCH (r:RestApi) WHERE r.id = m.restApiId MERGE (m)-[:MAPS_TO]->(r) MERGE (dn)-[:HAS_API_MAPPING {path: m.basePath, stage: m.stage}]->(r)"
       Bolt.query_ "MATCH (e:Environment) WHERE ANY(p IN KEYS(e) WHERE TOSTRING(e[p]) ENDS WITH \"rds.amazonaws.com\") WITH e, [p IN KEYS(e) WHERE TOSTRING(e[p]) ENDS WITH \"rds.amazonaws.com\"| e[p]] AS rds MATCH (ep:Endpoint) WHERE ep.address IN rds MERGE (e)-[:REFERENCES]->(ep)"
       Bolt.query_ "MATCH (e:Environment) WHERE ANY(p IN KEYS(e) WHERE TOSTRING(e[p]) STARTS WITH \"arn:aws:secretsmanager\") UNWIND [p IN KEYS(e) WHERE TOSTRING(e[p]) STARTS WITH \"arn:aws:secretsmanager\" | e[p]] AS a MATCH (s:Secrets {arn:a}) MERGE (e)-[:REFERENCES]->(s)"
+      Bolt.query_ "MATCH (dn:DomainName) MATCH (e:Environment) UNWIND([p IN keys(e) WHERE e[p] CONTAINS dn.domainName]) AS p MERGE (e)-[:REFERENCES {viaEnvironmentVariable: p}]->(dn)"
       Bolt.query_ "MATCH (a)-[:HAS_ENVIRONMENT]->(e)-[:REFERENCES]->(ep:Endpoint)<-[:ENDPOINT]-(d:DbInstance) MERGE (a)-[r:USES_DATABASE]->(d) SET r.inSecrets = true"
       Bolt.query_ "MATCH (a)-[:HAS_ENVIRONMENT]->(e)-[:REFERENCES]->(s:Secrets)-[:HAS_VALUES]->(m:SecretsMap) MERGE (a)-[:HAS_SECRETS]->(m)"
+      Bolt.query_ "MATCH (a)-[:HAS_ENVIRONMENT]->(e)-[:REFERENCES]->(dn:DomainName)-[:HAS_API_MAPPING]->(r:RestApi) MERGE (a)-[:USES_API]->(r)"
       Bolt.query_ "MATCH (m:SecretsMap) WHERE (ANY(prop IN KEYS(m) WHERE TOSTRING(m[prop]) ENDS WITH \"rds.amazonaws.com\")) WITH m, [prop IN KEYS(m) WHERE TOSTRING(m[prop]) ENDS WITH \"rds.amazonaws.com\"| m[prop]] AS rds MATCH (ep:Endpoint) WHERE ep.address IN rds MERGE (m)-[:REFERENCES]->(ep)"
       Bolt.query_ "MATCH (a)-[:HAS_SECRETS]->(m)-[:REFERENCES]->(ep:Endpoint)<-[:ENDPOINT]-(d:DbInstance) MERGE (a)-[r:USES_DATABASE]->(d) SET r.inEnvironment = true"
       Bolt.query_ "MATCH (t:Tags) WHERE ANY(p IN KEYS(t) WHERE p = 'app') MERGE (a:App {name: t.app}) MERGE (t)-[:REFERENCES]->(a)"
@@ -256,6 +264,45 @@ ingestRestApis db = mapM_C ingestRestApi
             resources
         Nothing ->
           return () -- Skip rest apis with no id
+
+fetchAllDomainNames :: MonadResource m => Amazonka.Env -> ConduitM () APIGateway.DomainName m ()
+fetchAllDomainNames env =
+  Amazonka.paginate env APIGateway.newGetDomainNames
+    .| concatMapC (concat . GetDomainNames.items)
+
+fetchAllBasePathMappings :: MonadResource m => Amazonka.Env -> ConduitM APIGateway.DomainName (APIGateway.DomainName, [APIGateway.BasePathMapping]) m ()
+fetchAllBasePathMappings env = mapMC fetchBasePathMappings
+ where
+  fetchBasePathMappings domainName = do
+    maps <-
+      case DomainName.domainName domainName of
+        Just name ->
+          runConduit $
+            Amazonka.paginate env (GetBasePathMappings.newGetBasePathMappings name)
+              .| concatMapC (concat . GetBasePathMappings.items)
+              .| sinkList
+        Nothing ->
+          return []
+    return (domainName, maps)
+
+ingestDomainNames :: MonadIO m => Bolt.Pipe -> ConduitT (APIGateway.DomainName, [APIGateway.BasePathMapping]) o m ()
+ingestDomainNames db = mapM_C ingestDomainName
+ where
+  ingestDomainName :: MonadIO m => (APIGateway.DomainName, [APIGateway.BasePathMapping]) -> m ()
+  ingestDomainName (domainName, mappings) =
+    Bolt.run db $ do
+      traverse_
+        ( \name -> do
+            Bolt.queryP_ "MERGE (r:DomainName {domainName: $n}) ON CREATE SET r = $r ON MATCH SET r = $r" (Bolt.props ["n" =: name, "r" =: domainName])
+            traverse_
+              ( \mapping -> do
+                  Bolt.queryP_
+                    "MATCH (r:DomainName {domainName: $n}) MERGE (r)-[:HAS_BASE_PATH_MAPPING]->(m:BasePathMapping {basePath: $m.basePath}) ON CREATE SET m = $m ON MATCH SET m = $m"
+                    (Bolt.props ["n" =: name, "m" =: mapping])
+              )
+              (filter (isJust . BasePathMapping.basePath) mappings)
+        )
+        (DomainName.domainName domainName)
 
 fetchAllResourceTagMappings :: MonadResource m => Amazonka.Env -> ConduitM () ResourceGroupsTagging.ResourceTagMapping m ()
 fetchAllResourceTagMappings env =
