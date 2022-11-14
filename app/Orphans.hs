@@ -1,3 +1,4 @@
+{-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -7,6 +8,16 @@
 module Orphans where
 
 import qualified Amazonka
+import Amazonka.APIGateway (EndpointType (fromEndpointType))
+import qualified Amazonka.APIGateway.Types
+import qualified Amazonka.APIGateway.Types.ApiKeySourceType
+import qualified Amazonka.APIGateway.Types.ConnectionType
+import qualified Amazonka.APIGateway.Types.EndpointConfiguration
+import qualified Amazonka.APIGateway.Types.Integration
+import qualified Amazonka.APIGateway.Types.IntegrationType
+import qualified Amazonka.APIGateway.Types.Method
+import qualified Amazonka.APIGateway.Types.Resource
+import qualified Amazonka.APIGateway.Types.RestApi
 import qualified Amazonka.EC2.Types.GroupIdentifier
 import qualified Amazonka.EC2.Types.Instance
 import qualified Amazonka.EC2.Types.InstanceState
@@ -203,7 +214,64 @@ instance Bolt.IsValue Amazonka.SecretsManager.GetSecretValue.GetSecretValueRespo
         , "versionId" =: versionId
         ]
 
+instance Bolt.IsValue Amazonka.APIGateway.Types.RestApi.RestApi where
+  toValue Amazonka.APIGateway.Types.RestApi.RestApi'{..} =
+    Bolt.toValue $
+      Map.fromList
+        [ "id" =: id
+        , "name" =: name
+        , "description" =: description
+        , "binaryMediaTypes" =: binaryMediaTypes
+        , "apiKeySource" =: (Amazonka.APIGateway.Types.ApiKeySourceType.fromApiKeySourceType <$> apiKeySource)
+        , "minimumCompressionSize" =: minimumCompressionSize
+        , "version" =: version
+        ]
+
+instance Bolt.IsValue Amazonka.APIGateway.Types.EndpointConfiguration.EndpointConfiguration where
+  toValue Amazonka.APIGateway.Types.EndpointConfiguration.EndpointConfiguration'{..} =
+    Bolt.toValue $
+      Map.fromList
+        [ "vpcEndpointIds" =: vpcEndpointIds
+        , "types" =: (map fromEndpointType <$> types)
+        ]
+
+instance Bolt.IsValue Amazonka.APIGateway.Types.Resource.Resource where
+  toValue Amazonka.APIGateway.Types.Resource.Resource'{..} =
+    Bolt.toValue $
+      Map.fromList
+        [ "pathPart" =: pathPart
+        , "path" =: path
+        , "parentId" =: parentId
+        , "id" =: id
+        ]
+
+instance Bolt.IsValue Amazonka.APIGateway.Types.Method.Method where
+  toValue Amazonka.APIGateway.Types.Method.Method'{..} =
+    Bolt.toValue $
+      Map.fromList
+        [ "httpMethod" =: httpMethod
+        , "operationName" =: operationName
+        , "authorizationType" =: authorizationType
+        , "apiKeyRequired" =: apiKeyRequired
+        ]
+
+instance Bolt.IsValue Amazonka.APIGateway.Types.Integration.Integration where
+  toValue Amazonka.APIGateway.Types.Integration.Integration'{..} =
+    Bolt.toValue $
+      Map.fromList
+        [ "cacheKeyParameters" =: cacheKeyParameters
+        , "cacheNamespace" =: cacheNamespace
+        , "connectionId" =: connectionId
+        , "connectionType" =: (Amazonka.APIGateway.Types.ConnectionType.fromConnectionType <$> connectionType)
+        , "passthroughBehavior" =: passthroughBehavior
+        , "requestParameters" =: (map (\(k, v) -> k <> ":" <> v) . HashMap.toList <$> requestParameters)
+        , "timeoutInMillis" =: timeoutInMillis
+        , "type" =: (Amazonka.APIGateway.Types.IntegrationType.fromIntegrationType <$> type')
+        , "uri" =: uri
+        ]
+
 instance Bolt.IsValue Aeson.Value where
+  toValue :: Aeson.Value -> Bolt.Value
   toValue (Aeson.Object o) = Bolt.M $ Bolt.toValue <$> KeyMap.toMapText o
   toValue (Aeson.Array xs) = Bolt.L $ Bolt.toValue <$> Foldable.toList xs
   toValue (Aeson.String t) = Bolt.T t

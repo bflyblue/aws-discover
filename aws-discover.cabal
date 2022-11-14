@@ -34,10 +34,12 @@ executable aws-discover
     , base
     , aeson
     , amazonka
-    , amazonka-resourcegroupstagging
+    , amazonka-apigateway
+    , amazonka-apigatewayv2
     , amazonka-ec2
     , amazonka-lambda
     , amazonka-rds
+    , amazonka-resourcegroupstagging
     , amazonka-s3
     , amazonka-secretsmanager
     , async

@@ -9,6 +9,12 @@
 module Main where
 
 import qualified Amazonka
+import qualified Amazonka.APIGateway as APIGateway
+import qualified Amazonka.APIGateway.GetResources as ApiGetResources
+import qualified Amazonka.APIGateway.GetRestApis as GetRestApis
+import qualified Amazonka.APIGateway.Types.Method as Method
+import qualified Amazonka.APIGateway.Types.Resource as Resource
+import qualified Amazonka.APIGateway.Types.RestApi as RestApi
 import qualified Amazonka.EC2.DescribeInstances as DescribeInstances
 import qualified Amazonka.EC2.DescribeSecurityGroups as DescribeSecurityGroups
 import qualified Amazonka.EC2.DescribeSubnets as DescribeSubnets
@@ -33,13 +39,16 @@ import Control.Applicative ((<|>))
 import Control.Concurrent.Async (mapConcurrently_)
 import qualified Control.Monad.Catch as Catch
 import Control.Monad.Trans.Resource
-import Data.Aeson as Aeson
+import qualified Data.Aeson as Aeson
 import Data.Default
 import Data.Foldable (traverse_)
+import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map.Strict as Map
+import Data.Maybe (isJust)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Data.Text.Encoding as Text
+import Data.Traversable (for)
 import qualified Data.Yaml as Yaml
 import Database.Bolt ((=:))
 import qualified Database.Bolt as Bolt
@@ -57,8 +66,29 @@ data Config = Config
   deriving anyclass (Yaml.FromJSON)
 
 discover :: Amazonka.Env -> Bolt.BoltCfg -> IO ()
-discover env boltcfg =
-  do
+discover env boltcfg = do
+  -- cleanup
+  mapConcurrently_
+    run
+    -- [ \db -> fetchAllResourceTagMappings env .| ingestResourceTags db
+    -- , \db -> fetchAllEc2Instances env .| ingestInstances db
+    -- , \db -> fetchAllSubnets env .| ingestSubnets db
+    -- , \db -> fetchAllVpcs env .| ingestVpcs db
+    -- , \db -> fetchAllLambdas env .| ingestLambdas db
+    -- , \db -> fetchAllSecurityGroups env .| ingestSecurityGroups db
+    -- , \db -> fetchAllDbInstances env .| ingestDbInstances db
+    [ \db -> fetchAllRestApis env .| fetchAllRestApiResources env .| fetchAllRestApiMethods env .| ingestRestApis db
+    ]
+ where
+  -- run $ \db -> findEnvReferredSecrets db .| fetchSecrets env .| ingestSecrets db
+
+  -- relate
+
+  run :: MonadUnliftIO m => (Bolt.Pipe -> ConduitT () Void (ResourceT m) a) -> m a
+  run c = runResourceT $ withBolt boltcfg (runConduit . c)
+
+  cleanup :: IO ()
+  cleanup = do
     runResourceT $ withBolt boltcfg $ \db -> Bolt.run db $ do
       Bolt.query_ "MATCH (c:Cidr) DETACH DELETE c"
       Bolt.query_ "MATCH (c:Ipv6Cidr) DETACH DELETE c"
@@ -75,17 +105,13 @@ discover env boltcfg =
       Bolt.query_ "MATCH (s:Subnet) DETACH DELETE s"
       Bolt.query_ "MATCH (t:Tags) DETACH DELETE t"
       Bolt.query_ "MATCH (v:Vpc) DETACH DELETE v"
-    mapConcurrently_
-      run
-      [ \db -> fetchAllResourceTagMappings env .| ingestResourceTags db
-      , \db -> fetchAllEc2Instances env .| ingestInstances db
-      , \db -> fetchAllSubnets env .| ingestSubnets db
-      , \db -> fetchAllVpcs env .| ingestVpcs db
-      , \db -> fetchAllLambdas env .| ingestLambdas db
-      , \db -> fetchAllSecurityGroups env .| ingestSecurityGroups db
-      , \db -> fetchAllDbInstances env .| ingestDbInstances db
-      ]
-    run $ \db -> findEnvReferredSecrets db .| fetchSecrets env .| ingestSecrets db
+      Bolt.query_ "MATCH (a:RestApi) DETACH DELETE a"
+      Bolt.query_ "MATCH (r:RestResource) DETACH DELETE r"
+      Bolt.query_ "MATCH (m:RestMethod) DETACH DELETE m"
+      Bolt.query_ "MATCH (i:MethodIntegration) DETACH DELETE i"
+
+  relate :: IO ()
+  relate = do
     runResourceT $ withBolt boltcfg $ \db -> Bolt.run db $ do
       Bolt.query_ "MATCH (i:Instance) MATCH (v:Vpc) WHERE i.vpcId = v.vpcId CREATE (i)-[:IN_VPC]->(v)"
       Bolt.query_ "MATCH (l:Lambda) MATCH (v:Vpc) WHERE l.vpcId = v.vpcId CREATE (l)-[:IN_VPC]->(v)"
@@ -111,9 +137,6 @@ discover env boltcfg =
       Bolt.query_ "MATCH (a)-[:HAS_TAGS]->(e)-[:REFERENCES]->(b:Team) MERGE (b)-[:OWNS]->(a)"
       Bolt.query_ "MATCH (s)<-[:SERVICE_COMPONENT]-(x)-[:APP_COMPONENT]->(a) MERGE (s)-[:SERVICE_OF]->(a)"
       Bolt.query_ "MATCH (s)<-[:SYSTEM_COMPONENT]-(x)-[:APP_COMPONENT]->(a) MERGE (a)-[:APP_OF]->(s)"
- where
-  run :: MonadUnliftIO m => (Bolt.Pipe -> ConduitT () Void (ResourceT m) a) -> m a
-  run c = runResourceT $ withBolt boltcfg (runConduit . c)
 
 findEnvReferredSecrets :: MonadResource m => Bolt.Pipe -> ConduitM () Text m ()
 findEnvReferredSecrets db =
@@ -145,11 +168,12 @@ ingestSecrets db = mapM_C ingestSecretValueResponse
         Nothing -> return ()
 
   secretMap :: GetSecretValue.GetSecretValueResponse -> Maybe (Map.Map Text Bolt.Value)
-  secretMap resp =
-    (fmap (fmap Bolt.toValue . Map.filterWithKey safe) <$> Aeson.decodeStrict)
-      =<< ( Text.encodeUtf8 . Amazonka.fromSensitive <$> GetSecretValue.secretString resp
-              <|> Amazonka.unBase64 . Amazonka.fromSensitive <$> GetSecretValue.secretBinary resp
-          )
+  secretMap resp = fmap Bolt.toValue . Map.filterWithKey safe <$> secret
+   where
+    secret =
+      Aeson.decodeStrict
+        =<< Text.encodeUtf8 . Amazonka.fromSensitive <$> GetSecretValue.secretString resp
+          <|> Amazonka.unBase64 . Amazonka.fromSensitive <$> GetSecretValue.secretBinary resp
 
   safe :: Text -> Aeson.Value -> Bool
   safe key val = safeKey key || safeVal val
@@ -157,6 +181,81 @@ ingestSecrets db = mapM_C ingestSecretValueResponse
   safeKey key = any (`Text.isSuffixOf` key) ["_DB_ENGINE", "_DB_HOST", "_DB_NAME", "_DB_PORT"]
   safeVal (Aeson.String val) = "rds.amazonaws.com" `Text.isSuffixOf` val
   safeVal _ = False
+
+fetchAllRestApis :: MonadResource m => Amazonka.Env -> ConduitM () APIGateway.RestApi m ()
+fetchAllRestApis env =
+  Amazonka.paginate env APIGateway.newGetRestApis
+    .| concatMapC (concat . GetRestApis.items)
+
+fetchAllRestApiResources :: MonadResource m => Amazonka.Env -> ConduitM APIGateway.RestApi (Amazonka.Region, APIGateway.RestApi, [APIGateway.Resource]) m ()
+fetchAllRestApiResources env = mapMC fetchRestApiResources
+ where
+  fetchRestApiResources restApi = do
+    res <-
+      case RestApi.id restApi of
+        Just restApiId ->
+          runConduit $
+            Amazonka.paginate env (ApiGetResources.newGetResources restApiId)
+              .| concatMapC (concat . ApiGetResources.items)
+              .| sinkList
+        Nothing ->
+          return []
+    return (Amazonka.envRegion env, restApi, res)
+
+fetchAllRestApiMethods :: MonadResource m => Amazonka.Env -> ConduitM (Amazonka.Region, APIGateway.RestApi, [APIGateway.Resource]) (Amazonka.Region, APIGateway.RestApi, [(APIGateway.Resource, [APIGateway.Method])]) m ()
+fetchAllRestApiMethods env = mapMC fetchRestApiMethods
+ where
+  fetchRestApiMethods :: MonadResource m => (Amazonka.Region, APIGateway.RestApi, [APIGateway.Resource]) -> m (Amazonka.Region, APIGateway.RestApi, [(APIGateway.Resource, [APIGateway.Method])])
+  fetchRestApiMethods (region, restApi, resources) =
+    (region,restApi,) <$> methodsForResources (RestApi.id restApi) resources
+
+  methodsForResources Nothing = return . map (,[])
+  methodsForResources (Just restApiId) = traverse (methodsForResource restApiId)
+
+  methodsForResource restApiId resource = do
+    methods <- case Resource.id resource of
+      Just resourceId ->
+        for (maybe [] HashMap.keys $ Resource.resourceMethods resource) $ \method -> do
+          Amazonka.send env (APIGateway.newGetMethod restApiId resourceId method)
+      Nothing ->
+        return []
+    return (resource, methods)
+
+ingestRestApis :: MonadIO m => Bolt.Pipe -> ConduitT (Amazonka.Region, APIGateway.RestApi, [(APIGateway.Resource, [APIGateway.Method])]) o m ()
+ingestRestApis db = mapM_C ingestRestApi
+ where
+  ingestRestApi :: MonadIO m => (Amazonka.Region, APIGateway.RestApi, [(APIGateway.Resource, [APIGateway.Method])]) -> m ()
+  ingestRestApi (region, restApi, resources) =
+    Bolt.run db $ do
+      case RestApi.id restApi of
+        Just restApiId -> do
+          let arn = "arn:aws:apigateway:" <> Amazonka.fromRegion region <> "::/restapis/" <> restApiId
+          Bolt.queryP_
+            "MERGE (r:Resource {resourceARN:$r}) ON CREATE SET r:RestApi, r += $a ON MATCH SET r:RestApi, r += $a"
+            (Bolt.props ["r" =: arn, "a" =: restApi])
+          traverse_
+            ( \(resource, methods) -> do
+                Bolt.queryP_
+                  "MATCH (a:RestApi {id:$a}) MERGE (a)-[:HAS_RESOURCE]->(r:RestResource {id:$r.id}) ON CREATE SET r = $r ON MATCH SET r = $r"
+                  (Bolt.props ["a" =: restApiId, "r" =: resource])
+                traverse_
+                  ( \method -> do
+                      Bolt.queryP_
+                        "MATCH (a:RestApi {id:$a})-[:HAS_RESOURCE]->(r:RestResource {id:$r}) MERGE (r)-[:HAS_METHOD]->(m:RestMethod {httpMethod:$m.httpMethod}) ON CREATE SET m = $m ON MATCH SET m = $m"
+                        (Bolt.props ["a" =: restApiId, "r" =: Resource.id resource, "m" =: method])
+                      traverse_
+                        ( \integration ->
+                            Bolt.queryP_
+                              "MATCH (a:RestApi {id:$a})-[:HAS_RESOURCE]->(r:RestResource {id:$r})-[:HAS_METHOD]->(m:RestMethod {httpMethod:$m}) MERGE (m)-[:HAS_INTEGRATION]->(i:MethodIntegration) ON CREATE SET i = $i ON MATCH SET i = $i"
+                              (Bolt.props ["a" =: restApiId, "r" =: Resource.id resource, "m" =: Method.httpMethod method, "i" =: integration])
+                        )
+                        (Method.methodIntegration method)
+                  )
+                  (filter (isJust . Method.httpMethod) methods)
+            )
+            resources
+        Nothing ->
+          return () -- Skip rest apis with no id
 
 fetchAllResourceTagMappings :: MonadResource m => Amazonka.Env -> ConduitM () ResourceGroupsTagging.ResourceTagMapping m ()
 fetchAllResourceTagMappings env =

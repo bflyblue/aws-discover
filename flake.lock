@@ -3,8 +3,8 @@
     "amazonka": {
       "flake": false,
       "locked": {
-        "lastModified": 1667473925,
-        "narHash": "sha256-+z3zcK1vcWTya4GtkxJ8ll8+piEwLG3jEp+ejtlWRug=",
+        "lastModified": 1668180084,
+        "narHash": "sha256-XBF9TUnpoEpb/PMop9YaI0w4qot5S0C0LwFB9auoDzQ=",
         "path": "/home/shaun/devel/3rdparty/amazonka",
         "type": "path"
       },
@@ -46,11 +46,11 @@
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1667552457,
-        "narHash": "sha256-9gH6VAK7idBb9owuLCKT2ODQUpDNc+UvcFWZ+lx41eM=",
+        "lastModified": 1668178525,
+        "narHash": "sha256-VDmH63PcL7iFt7cWWnvgjg2JO2QyYd0VJQqniTwyYco=",
         "owner": "nixos",
         "repo": "nixpkgs",
-        "rev": "7d09cc075f416997a8e547982b652ec2c7020a5f",
+        "rev": "ef62f6566bec854eb8f7c98d38c64d9047d77ab6",
         "type": "github"
       },
       "original": {

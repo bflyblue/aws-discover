@@ -32,6 +32,8 @@
             amazonka-sso = amazonkaService "amazonka-sso" { };
             amazonka-sts = amazonkaService "amazonka-sts" { };
 
+            amazonka-apigateway = amazonkaService "amazonka-apigateway" { };
+            amazonka-apigatewayv2 = amazonkaService "amazonka-apigatewayv2" { };
             amazonka-ec2 = amazonkaService "amazonka-ec2" { };
             amazonka-lambda = amazonkaService "amazonka-lambda" { };
             amazonka-rds = amazonkaService "amazonka-rds" { };
