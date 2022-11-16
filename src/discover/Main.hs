@@ -1,6 +1,3 @@
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -39,12 +36,11 @@ import qualified Amazonka.ResourceGroupsTagging.Types.ResourceTagMapping as Reso
 import qualified Amazonka.SecretsManager as SecretsManager
 import qualified Amazonka.SecretsManager.GetSecretValue as GetSecretValue
 import Conduit
+import Config
 import Control.Applicative ((<|>))
 import Control.Concurrent.Async (mapConcurrently_)
 import qualified Control.Monad.Catch as Catch
-import Control.Monad.Trans.Resource
 import qualified Data.Aeson as Aeson
-import Data.Default
 import Data.Foldable (traverse_)
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map.Strict as Map
@@ -53,21 +49,12 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import Data.Text.Encoding as Text
 import Data.Traversable (for)
-import qualified Data.Yaml as Yaml
+import Database
 import Database.Bolt ((=:))
 import qualified Database.Bolt as Bolt
-import GHC.Generics (Generic)
 import Orphans ()
 import System.IO (stdout)
 import Tags
-
-data Config = Config
-  { host :: String
-  , user :: Text
-  , password :: Text
-  }
-  deriving stock (Eq, Show, Generic)
-  deriving anyclass (Yaml.FromJSON)
 
 discover :: Amazonka.Env -> Bolt.BoltCfg -> IO ()
 discover env boltcfg = do
@@ -145,6 +132,11 @@ discover env boltcfg = do
       Bolt.query_ "MATCH (a)-[:HAS_TAGS]->(e)-[:REFERENCES]->(b:Team) MERGE (b)-[:OWNS]->(a)"
       Bolt.query_ "MATCH (s)<-[:SERVICE_COMPONENT]-(x)-[:APP_COMPONENT]->(a) MERGE (s)-[:SERVICE_OF]->(a)"
       Bolt.query_ "MATCH (s)<-[:SYSTEM_COMPONENT]-(x)-[:APP_COMPONENT]->(a) MERGE (a)-[:APP_OF]->(s)"
+
+{-
+match (l:Lambda) match (a:MethodIntegration) where a.uri contains l.resourceARN merge (a)-[:HAS_INTEGRATION_ENDPOINT]->(l)
+MATCH (a)-[:USES_API]->(b)-[:HAS_RESOURCE]->(c)-[:HAS_METHOD]->(d)-[:HAS_INTEGRATION]->(e)-[:HAS_INTEGRATION_ENDPOINT]->(f) merge (a)-[:CALLS {api: b.name, apiGateway: b.resourceARN, resource: c.path, method: d.httpMethod, integration: e.uri}]->(f)
+-}
 
 findEnvReferredSecrets :: MonadResource m => Bolt.Pipe -> ConduitM () Text m ()
 findEnvReferredSecrets db =
@@ -497,16 +489,9 @@ ingestDbInstances db = mapM_C ingestDbInstance
         )
         (DBInstance.listenerEndpoint inst)
 
-withBolt :: MonadResource m => Bolt.BoltCfg -> (Bolt.Pipe -> m a) -> m a
-withBolt cfg f = do
-  (key, db) <- allocate (Bolt.connect cfg) Bolt.close
-  r <- f db
-  release key
-  return r
-
 main :: IO ()
 main = do
-  cfg <- Yaml.decodeFileThrow "aws-discover.yaml"
+  cfg <- Config.readConfigFile "aws-discover.yaml"
   lgr <- Amazonka.newLogger Amazonka.Info stdout
   discoveredEnv <- Amazonka.newEnv Amazonka.discover
   let env =
@@ -514,10 +499,4 @@ main = do
           { Amazonka.envLogger = lgr
           , Amazonka.envRegion = Amazonka.Ireland
           }
-      boltcfg =
-        def
-          { Bolt.host = host cfg
-          , Bolt.user = user cfg
-          , Bolt.password = password cfg
-          }
-  discover env boltcfg
+  discover env (boltConfig cfg)
