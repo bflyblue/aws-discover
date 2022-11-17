@@ -90,7 +90,6 @@ discover env boltcfg = do
       Bolt.query_ "MATCH (l:Lambda) DETACH DELETE l"
       Bolt.query_ "MATCH (m:SecretsMap) DETACH DELETE m"
       Bolt.query_ "MATCH (p:IpPermission) DETACH DELETE p"
-      Bolt.query_ "MATCH (r:Resource) DETACH DELETE r"
       Bolt.query_ "MATCH (s:Secrets) DETACH DELETE s"
       Bolt.query_ "MATCH (s:Subnet) DETACH DELETE s"
       Bolt.query_ "MATCH (t:Tags) DETACH DELETE t"
@@ -101,6 +100,7 @@ discover env boltcfg = do
       Bolt.query_ "MATCH (i:MethodIntegration) DETACH DELETE i"
       Bolt.query_ "MATCH (d:DomainName) DETACH DELETE d"
       Bolt.query_ "MATCH (m:BasePathMapping) DETACH DELETE m"
+      Bolt.query_ "MATCH (r:Resource) DETACH DELETE r"
 
   relate :: IO ()
   relate = do
@@ -257,15 +257,15 @@ ingestRestApis db = mapM_C ingestRestApi
         Nothing ->
           return () -- Skip rest apis with no id
 
-fetchAllDomainNames :: MonadResource m => Amazonka.Env -> ConduitM () APIGateway.DomainName m ()
+fetchAllDomainNames :: MonadResource m => Amazonka.Env -> ConduitM () (Amazonka.Region, APIGateway.DomainName) m ()
 fetchAllDomainNames env =
   Amazonka.paginate env APIGateway.newGetDomainNames
-    .| concatMapC (concat . GetDomainNames.items)
+    .| concatMapC (map (Amazonka.envRegion env,) . concat . GetDomainNames.items)
 
-fetchAllBasePathMappings :: MonadResource m => Amazonka.Env -> ConduitM APIGateway.DomainName (APIGateway.DomainName, [APIGateway.BasePathMapping]) m ()
+fetchAllBasePathMappings :: MonadResource m => Amazonka.Env -> ConduitM (Amazonka.Region, APIGateway.DomainName) (Amazonka.Region, APIGateway.DomainName, [APIGateway.BasePathMapping]) m ()
 fetchAllBasePathMappings env = mapMC fetchBasePathMappings
  where
-  fetchBasePathMappings domainName = do
+  fetchBasePathMappings (region, domainName) = do
     maps <-
       case DomainName.domainName domainName of
         Just name ->
@@ -275,17 +275,20 @@ fetchAllBasePathMappings env = mapMC fetchBasePathMappings
               .| sinkList
         Nothing ->
           return []
-    return (domainName, maps)
+    return (region, domainName, maps)
 
-ingestDomainNames :: MonadIO m => Bolt.Pipe -> ConduitT (APIGateway.DomainName, [APIGateway.BasePathMapping]) o m ()
+ingestDomainNames :: MonadIO m => Bolt.Pipe -> ConduitT (Amazonka.Region, APIGateway.DomainName, [APIGateway.BasePathMapping]) o m ()
 ingestDomainNames db = mapM_C ingestDomainName
  where
-  ingestDomainName :: MonadIO m => (APIGateway.DomainName, [APIGateway.BasePathMapping]) -> m ()
-  ingestDomainName (domainName, mappings) =
+  ingestDomainName :: MonadIO m => (Amazonka.Region, APIGateway.DomainName, [APIGateway.BasePathMapping]) -> m ()
+  ingestDomainName (region, domainName, mappings) =
     Bolt.run db $ do
       traverse_
         ( \name -> do
-            Bolt.queryP_ "MERGE (r:DomainName {domainName: $n}) ON CREATE SET r = $r ON MATCH SET r = $r" (Bolt.props ["n" =: name, "r" =: domainName])
+            let arn = "arn:aws:apigateway:" <> Amazonka.fromRegion region <> "::/domainnames/" <> name
+            Bolt.queryP_
+              "MERGE (r:Resource {resourceARN:$a}) ON CREATE SET r:DomainName, r += $r ON MATCH SET r:DomainName, r += $r"
+              (Bolt.props ["a" =: arn, "r" =: domainName])
             traverse_
               ( \mapping -> do
                   Bolt.queryP_

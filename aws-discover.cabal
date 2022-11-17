@@ -50,6 +50,7 @@ executable aws-discover
     , amazonka
     , amazonka-apigateway
     , amazonka-apigatewayv2
+    , amazonka-cloudwatch-logs
     , amazonka-ec2
     , amazonka-lambda
     , amazonka-rds
