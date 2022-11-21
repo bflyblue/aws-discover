@@ -12,6 +12,7 @@ data Config = Config
   { host :: String
   , user :: Text
   , password :: Text
+  , secure :: Bool
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (Yaml.FromJSON)

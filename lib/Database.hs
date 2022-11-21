@@ -11,6 +11,7 @@ boltConfig cfg =
     { Bolt.host = host cfg
     , Bolt.user = user cfg
     , Bolt.password = password cfg
+    , Bolt.secure = secure cfg
     }
 
 withBolt :: Resource.MonadResource m => Bolt.BoltCfg -> (Bolt.Pipe -> m a) -> m a
