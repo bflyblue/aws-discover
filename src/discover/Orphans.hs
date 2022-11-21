@@ -21,6 +21,7 @@ import qualified Amazonka.APIGateway.Types.Method
 import qualified Amazonka.APIGateway.Types.Resource
 import qualified Amazonka.APIGateway.Types.RestApi
 import qualified Amazonka.APIGateway.Types.SecurityPolicy
+import qualified Amazonka.CloudWatchLogs.Types.LogGroup
 import qualified Amazonka.EC2.Types.GroupIdentifier
 import qualified Amazonka.EC2.Types.Instance
 import qualified Amazonka.EC2.Types.InstanceState
@@ -53,6 +54,7 @@ import qualified Data.Foldable as Foldable
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map.Strict as Map
 import qualified Data.Scientific as Scientific
+import qualified Data.Text as Text
 import Database.Bolt ((=:))
 import qualified Database.Bolt as Bolt
 import Numeric.Natural (Natural)
@@ -165,8 +167,13 @@ instance Bolt.IsValue Amazonka.Lambda.Types.EnvironmentResponse.EnvironmentRespo
     Bolt.toValue $
       maybe
         mempty
-        (Map.fromList . HashMap.toList . fmap (Bolt.toValue . Amazonka.fromSensitive) . Amazonka.fromSensitive)
+        (Map.fromList . HashMap.toList . HashMap.filterWithKey safe . fmap (Bolt.toValue . Amazonka.fromSensitive) . Amazonka.fromSensitive)
         variables
+   where
+    safe :: Text.Text -> Bolt.Value -> Bool
+    safe key _val = safeKey key
+
+    safeKey key = not $ any (`Text.isSuffixOf` key) ["_PASSWORD", "_KEY", "_SECRET"]
 
 instance Bolt.IsValue Amazonka.RDS.Types.DBInstance.DBInstance where
   toValue Amazonka.RDS.Types.DBInstance.DBInstance'{..} =
@@ -298,6 +305,18 @@ instance Bolt.IsValue Amazonka.APIGateway.Types.BasePathMapping.BasePathMapping 
         [ "basePath" =: basePath
         , "restApiId" =: restApiId
         , "stage" =: stage
+        ]
+
+instance Bolt.IsValue Amazonka.CloudWatchLogs.Types.LogGroup.LogGroup where
+  toValue Amazonka.CloudWatchLogs.Types.LogGroup.LogGroup'{..} =
+    Bolt.toValue $
+      Map.fromList
+        [ "arn" =: arn
+        , "storedBytes" =: storedBytes
+        , "retentionInDays" =: retentionInDays
+        , "kmsKeyId" =: kmsKeyId
+        , "metricFilterCount" =: metricFilterCount
+        , "logGroupName" =: logGroupName
         ]
 
 instance Bolt.IsValue Aeson.Value where

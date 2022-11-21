@@ -16,6 +16,8 @@ import qualified Amazonka.APIGateway.Types.DomainName as DomainName
 import qualified Amazonka.APIGateway.Types.Method as Method
 import qualified Amazonka.APIGateway.Types.Resource as Resource
 import qualified Amazonka.APIGateway.Types.RestApi as RestApi
+import qualified Amazonka.CloudWatchLogs.DescribeLogGroups as DescribeLogGroups
+import qualified Amazonka.CloudWatchLogs.Types.LogGroup as LogGroup
 import qualified Amazonka.EC2.DescribeInstances as DescribeInstances
 import qualified Amazonka.EC2.DescribeSecurityGroups as DescribeSecurityGroups
 import qualified Amazonka.EC2.DescribeSubnets as DescribeSubnets
@@ -70,6 +72,7 @@ discover env boltcfg = do
     , \db -> fetchAllDbInstances env .| ingestDbInstances db
     , \db -> fetchAllRestApis env .| fetchAllRestApiResources env .| fetchAllRestApiMethods env .| ingestRestApis db
     , \db -> fetchAllDomainNames env .| fetchAllBasePathMappings env .| ingestDomainNames db
+    , \db -> fetchAllLogGroups env .| ingestLogGroups db
     ]
   run $ \db -> findEnvReferredSecrets db .| fetchSecrets env .| ingestSecrets db
   relate
@@ -100,6 +103,7 @@ discover env boltcfg = do
       Bolt.query_ "MATCH (i:MethodIntegration) DETACH DELETE i"
       Bolt.query_ "MATCH (d:DomainName) DETACH DELETE d"
       Bolt.query_ "MATCH (m:BasePathMapping) DETACH DELETE m"
+      Bolt.query_ "MATCH (g:LogGroup) DETACH DELETE g"
       Bolt.query_ "MATCH (r:Resource) DETACH DELETE r"
 
   relate :: IO ()
@@ -491,6 +495,25 @@ ingestDbInstances db = mapM_C ingestDbInstance
               (Bolt.props ["d" =: DBInstance.dbInstanceArn inst, "e" =: e])
         )
         (DBInstance.listenerEndpoint inst)
+
+fetchAllLogGroups :: MonadResource m => Amazonka.Env -> ConduitM () LogGroup.LogGroup m ()
+fetchAllLogGroups env =
+  Amazonka.paginate env DescribeLogGroups.newDescribeLogGroups
+    .| concatMapC (concat . DescribeLogGroups.logGroups)
+
+ingestLogGroups :: MonadIO m => Bolt.Pipe -> ConduitT LogGroup.LogGroup o m ()
+ingestLogGroups db = mapM_C ingestLogGroup
+ where
+  ingestLogGroup :: MonadIO m => LogGroup.LogGroup -> m ()
+  ingestLogGroup logGroup = do
+    Bolt.run db $ do
+      case LogGroup.arn logGroup of
+        Just arn ->
+          Bolt.queryP_
+            "MERGE (r:Resource {resourceARN:$r}) ON CREATE SET r:LogGroup, r += $g ON MATCH SET r:LogGroup, r += $g"
+            (Bolt.props ["r" =: arn, "g" =: logGroup])
+        Nothing ->
+          return ()
 
 main :: IO ()
 main = do
