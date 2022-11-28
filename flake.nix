@@ -44,6 +44,7 @@
             amazonka-s3 = amazonkaService "amazonka-s3" { };
             amazonka-secretsmanager =
               amazonkaService "amazonka-secretsmanager" { };
+            amazonka-xray = amazonkaService "amazonka-xray" { };
           };
 
         };

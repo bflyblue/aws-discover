@@ -8,13 +8,13 @@
 module Orphans where
 
 import qualified Amazonka
-import Amazonka.APIGateway (EndpointType (fromEndpointType))
 import qualified Amazonka.APIGateway.Types
 import qualified Amazonka.APIGateway.Types.ApiKeySourceType
 import qualified Amazonka.APIGateway.Types.BasePathMapping
 import qualified Amazonka.APIGateway.Types.ConnectionType
 import qualified Amazonka.APIGateway.Types.DomainName
 import qualified Amazonka.APIGateway.Types.EndpointConfiguration
+import qualified Amazonka.APIGateway.Types.EndpointType
 import qualified Amazonka.APIGateway.Types.Integration
 import qualified Amazonka.APIGateway.Types.IntegrationType
 import qualified Amazonka.APIGateway.Types.Method
@@ -242,7 +242,7 @@ instance Bolt.IsValue Amazonka.APIGateway.Types.EndpointConfiguration.EndpointCo
     Bolt.toValue $
       Map.fromList
         [ "vpcEndpointIds" =: vpcEndpointIds
-        , "types" =: (map fromEndpointType <$> types)
+        , "types" =: (map Amazonka.APIGateway.Types.EndpointType.fromEndpointType <$> types)
         ]
 
 instance Bolt.IsValue Amazonka.APIGateway.Types.Resource.Resource where
