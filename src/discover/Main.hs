@@ -66,13 +66,12 @@ module Main where
 -- import Hasql.Encoders
 -- import Hasql.Session (run)
 
-import Algebra.Graph.Labelled ((-<), (>-))
-import qualified Algebra.Graph.Labelled as G
-import Data.Aeson
-import Data.Text (Text)
-import qualified Data.UUID.V4 as V4
-import Database.Types
-import GEXF (writeGEXF)
+-- import Data.Aeson
+-- import Data.Text (Text)
+-- import qualified Data.UUID.V4 as V4
+-- import Database.Types
+-- import GEXF (writeGEXF)
+import Graph
 
 {-
 discover :: Amazonka.Env -> Bolt.BoltCfg -> IO ()
@@ -565,4 +564,12 @@ main = do
   -- print r
   writeGEXF "test.gexf" g
 -}
-main = undefined
+main :: IO ()
+main = do
+  a <- newNode
+  e <- newEdge
+  b <- newNode
+
+  let g = a -< e >- b
+
+  print g

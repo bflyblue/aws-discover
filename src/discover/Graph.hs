@@ -1,36 +1,89 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE InstanceSigs #-}
 
 module Graph where
 
 import qualified Data.Aeson as Aeson
-import qualified Data.Hashable as H
+import qualified Data.HashSet as HS
+import Data.Hashable (Hashable)
 import Data.Text (Text)
 import Data.UUID
+import qualified Data.UUID.V4 as V4
 import qualified Graph.Properties as Prop
 
-type Graph = Prop.Graph (Id Edge) (Id Node) GraphLabel
+type Graph = Prop.Graph Edge Node Attributes
 
-type Label = Text
+newtype Node = Node UUID
+  deriving (Show, Eq, Hashable)
 
-newtype Id a = Id {unId :: UUID}
-  deriving (Show, Eq, Ord, H.Hashable)
+newtype Edge = Edge UUID
+  deriving (Show, Eq, Hashable)
+
+type Labels = HS.HashSet Text
 
 type Properties = Prop.Properties [Aeson.Value]
 
-{-
-
-data GraphLabel = GraphLabel
-  { labels :: [Label]
+data Attributes = Attributes
+  { labels :: Labels
   , properties :: Properties
   }
   deriving (Show)
 
-instance Semigroup GraphLabel where
-  a <> b = GraphLabel (labels a <> labels b) (properties a <> properties b)
+instance Semigroup Attributes where
+  a <> b = Attributes (labels a <> labels b) (properties a <> properties b)
 
-instance Monoid GraphLabel where
-  mempty = GraphLabel mempty mempty
+instance Monoid Attributes where
+  mempty = Attributes mempty mempty
+
+newNode :: IO Node
+newNode = Node <$> V4.nextRandom
+
+newEdge :: IO Edge
+newEdge = Edge <$> V4.nextRandom
+
+empty :: Graph
+empty = Prop.empty
+
+vertex :: Node -> Graph
+vertex = Prop.vertex
+
+edge :: Edge -> Node -> Node -> Graph
+edge = Prop.edge
+
+(-<) :: Node -> Edge -> (Node, Edge)
+a -< e = (a, e)
+
+(>-) :: (Node, Edge) -> Node -> Graph
+(a, e) >- b = edge e a b
+
+infixl 5 -<, >-
+
+class HasLabels a where
+  adjustLabels :: (Labels -> Labels) -> a -> Graph -> Graph
+
+instance HasLabels Node where
+  adjustLabels f = Prop.adjustVertex (\a -> a{labels = f (labels a)})
+
+instance HasLabels Edge where
+  adjustLabels f = Prop.adjustEdge (\a -> a{labels = f (labels a)})
+
+addLabel :: HasLabels a => Text -> a -> Graph -> Graph
+addLabel l = adjustLabels (HS.insert l)
+
+addLabels :: HasLabels a => [Text] -> a -> Graph -> Graph
+addLabels ls = adjustLabels (HS.union (HS.fromList ls))
+
+class HasProperties a where
+  adjustProperties :: (Properties -> Properties) -> a -> Graph -> Graph
+
+instance HasProperties Node where
+  adjustProperties f = Prop.adjustVertex (\a -> a{properties = f (properties a)})
+
+instance HasProperties Edge where
+  adjustProperties f = Prop.adjustEdge (\a -> a{properties = f (properties a)})
+
+{-
 
 data Labelled l a = Labelled {label :: l, labelled :: a}
   deriving (Show)

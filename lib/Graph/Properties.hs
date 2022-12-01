@@ -41,43 +41,37 @@ empty = Graph{graph = Labelled.empty, vertexProperties = HM.empty, edgePropertie
 adjustVertex :: (Eq v, H.Hashable v) => (p -> p) -> v -> Graph e v p -> Graph e v p
 adjustVertex f v g = g{vertexProperties = HM.adjust f v (vertexProperties g)}
 
+alterVertex :: (Eq v, H.Hashable v) => (Maybe p -> Maybe p) -> v -> Graph e v p -> Graph e v p
+alterVertex f v g = g{vertexProperties = HM.alter f v (vertexProperties g)}
+
 adjustEdge :: (Eq e, H.Hashable e) => (p -> p) -> e -> Graph e v p -> Graph e v p
 adjustEdge f e g = g{edgeProperties = HM.adjust f e (edgeProperties g)}
 
-vertex :: H.Hashable v => (v, p) -> Graph e v p
-vertex (v, p) = Graph (Labelled.vertex v) (HM.singleton v p) HM.empty
+alterEdge :: (Eq e, H.Hashable e) => (Maybe p -> Maybe p) -> e -> Graph e v p -> Graph e v p
+alterEdge f v g = g{edgeProperties = HM.alter f v (edgeProperties g)}
 
-edge ::
-  (H.Hashable v, H.Hashable e, Semigroup p, Eq v) =>
-  (e, p) ->
-  (v, p) ->
-  (v, p) ->
-  Graph e v p
-edge (e, ep) (a, ap) (b, bp) =
-  Graph
-    (Labelled.edge [e] a b)
-    (HM.singleton a ap <> HM.singleton b bp)
-    (HM.singleton e ep)
+vertex :: H.Hashable v => v -> Graph e v p
+vertex v = Graph (Labelled.vertex v) HM.empty HM.empty
 
-vertexList :: (H.Hashable v, Eq v, Ord v) => Graph e v p -> [(v, p)]
-vertexList g =
-  map withProperties (Labelled.vertexList $ graph g)
- where
-  withProperties v = (v, vertexProperties g HM.! v)
+edge :: e -> v -> v -> Graph e v p
+edge e a b = Graph (Labelled.edge [e] a b) HM.empty HM.empty
 
-edgeList ::
-  (H.Hashable v, Eq v, Ord v, H.Hashable e, Eq e) =>
-  Graph e v p ->
-  [(e, p, v, p, v, p)]
-edgeList g =
-  map withProperties $ concatMap flatten (Labelled.edgeList $ graph g)
+vertexLabel :: (Eq v, H.Hashable v) => v -> Graph e v p -> Maybe p
+vertexLabel v = HM.lookup v . vertexProperties
+
+edgeLabel :: (Eq e, H.Hashable e) => e -> Graph e v p -> Maybe p
+edgeLabel e = HM.lookup e . edgeProperties
+
+labelVertex :: (Eq v, H.Hashable v) => v -> p -> Graph e v p -> Graph e v p
+labelVertex v p = alterVertex (const $ Just p) v
+
+labelEdge :: (Eq e, H.Hashable e) => e -> p -> Graph e v p -> Graph e v p
+labelEdge v p = alterEdge (const $ Just p) v
+
+vertexList :: Ord v => Graph e v p -> [v]
+vertexList = Labelled.vertexList . graph
+
+edgeList :: (Ord v, Eq e) => Graph e v p -> [(e, v, v)]
+edgeList = concatMap flatten . Labelled.edgeList . graph
  where
   flatten (es, a, b) = map (,a,b) es
-  withProperties (e, a, b) =
-    ( e
-    , edgeProperties g HM.! e
-    , a
-    , vertexProperties g HM.! a
-    , b
-    , vertexProperties g HM.! b
-    )
