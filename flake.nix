@@ -8,6 +8,7 @@
       url = "github:edolstra/flake-compat";
       flake = false;
     };
+    # until 2.0 is released
     amazonka = {
       url = "/home/shaun/devel/3rdparty/amazonka";
       flake = false;
@@ -19,13 +20,20 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
-        # hlib = pkgs.haskell.lib;
+        hlib = pkgs.haskell.lib;
         amazonkaLib = name:
           haskellPackages.callCabal2nix name "${amazonka}/lib/${name}";
         amazonkaService = name:
           haskellPackages.callCabal2nix name "${amazonka}/lib/services/${name}";
         haskellPackages = pkgs.haskellPackages.override {
           overrides = self: super: {
+            hasql = hlib.dontCheck super.hasql_1_6_2;
+            postgresql-binary = hlib.dontCheck super.postgresql-binary_0_13_1;
+            text-builder = super.text-builder_0_6_7;
+            text-builder-dev = super.text-builder-dev_0_3_3;
+            isomorphism-class =
+              hlib.markUnbroken (hlib.dontCheck super.isomorphism-class);
+
             amazonka = amazonkaLib "amazonka" { };
             amazonka-core = amazonkaLib "amazonka-core" { };
             amazonka-test = amazonkaLib "amazonka-test" { };

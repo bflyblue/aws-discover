@@ -1,63 +1,80 @@
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Main where
 
-import qualified Amazonka
-import qualified Amazonka.APIGateway as APIGateway
-import qualified Amazonka.APIGateway.GetBasePathMappings as GetBasePathMappings
-import qualified Amazonka.APIGateway.GetDomainNames as GetDomainNames
-import qualified Amazonka.APIGateway.GetResources as ApiGetResources
-import qualified Amazonka.APIGateway.GetRestApis as GetRestApis
-import qualified Amazonka.APIGateway.Types.BasePathMapping as BasePathMapping
-import qualified Amazonka.APIGateway.Types.DomainName as DomainName
-import qualified Amazonka.APIGateway.Types.Method as Method
-import qualified Amazonka.APIGateway.Types.Resource as Resource
-import qualified Amazonka.APIGateway.Types.RestApi as RestApi
-import qualified Amazonka.CloudWatchLogs.DescribeLogGroups as DescribeLogGroups
-import qualified Amazonka.CloudWatchLogs.Types.LogGroup as LogGroup
-import qualified Amazonka.EC2.DescribeInstances as DescribeInstances
-import qualified Amazonka.EC2.DescribeSecurityGroups as DescribeSecurityGroups
-import qualified Amazonka.EC2.DescribeSubnets as DescribeSubnets
-import qualified Amazonka.EC2.DescribeVpcs as DescribeVpcs
-import qualified Amazonka.EC2.Types.Instance as Instance
-import qualified Amazonka.EC2.Types.Reservation as Reservation
-import qualified Amazonka.EC2.Types.SecurityGroup as SecurityGroup
-import qualified Amazonka.EC2.Types.Subnet as Subnet
-import qualified Amazonka.EC2.Types.Vpc as Vpc
-import qualified Amazonka.Lambda as Lambda
-import qualified Amazonka.Lambda.ListFunctions as ListFunctions
-import qualified Amazonka.Lambda.Types.FunctionConfiguration as FunctionConfiguration
-import qualified Amazonka.RDS.DescribeDBInstances as DescribeDbInstances
-import qualified Amazonka.RDS.Types.DBInstance as DBInstance
-import qualified Amazonka.ResourceGroupsTagging as ResourceGroupsTagging
-import qualified Amazonka.ResourceGroupsTagging.GetResources as GetResources
-import qualified Amazonka.ResourceGroupsTagging.Types.ResourceTagMapping as ResourceTagMapping
-import qualified Amazonka.SecretsManager as SecretsManager
-import qualified Amazonka.SecretsManager.GetSecretValue as GetSecretValue
-import Conduit
-import Config
-import Control.Applicative ((<|>))
-import Control.Concurrent.Async (mapConcurrently_)
-import qualified Control.Monad.Catch as Catch
-import qualified Data.Aeson as Aeson
-import Data.Foldable (traverse_)
-import qualified Data.HashMap.Strict as HashMap
-import qualified Data.Map.Strict as Map
-import Data.Maybe (isJust)
-import Data.Text (Text)
-import qualified Data.Text as Text
-import Data.Text.Encoding as Text
-import Data.Traversable (for)
-import Database
-import Database.Bolt ((=:))
-import qualified Database.Bolt as Bolt
-import Orphans ()
-import System.IO (stdout)
-import Tags
+-- import qualified Amazonka
+-- import qualified Amazonka.APIGateway as APIGateway
+-- import qualified Amazonka.APIGateway.GetBasePathMappings as GetBasePathMappings
+-- import qualified Amazonka.APIGateway.GetDomainNames as GetDomainNames
+-- import qualified Amazonka.APIGateway.GetResources as ApiGetResources
+-- import qualified Amazonka.APIGateway.GetRestApis as GetRestApis
+-- import qualified Amazonka.APIGateway.Types.BasePathMapping as BasePathMapping
+-- import qualified Amazonka.APIGateway.Types.DomainName as DomainName
+-- import qualified Amazonka.APIGateway.Types.Method as Method
+-- import qualified Amazonka.APIGateway.Types.Resource as Resource
+-- import qualified Amazonka.APIGateway.Types.RestApi as RestApi
+-- import qualified Amazonka.CloudWatchLogs.DescribeLogGroups as DescribeLogGroups
+-- import qualified Amazonka.CloudWatchLogs.Types.LogGroup as LogGroup
+-- import qualified Amazonka.Lambda as Lambda
+-- import qualified Amazonka.Lambda.ListFunctions as ListFunctions
+-- import qualified Amazonka.Lambda.Types.FunctionConfiguration as FunctionConfiguration
+-- import qualified Amazonka.RDS.DescribeDBInstances as DescribeDbInstances
+-- import qualified Amazonka.RDS.Types.DBInstance as DBInstance
+-- import qualified Amazonka.ResourceGroupsTagging as ResourceGroupsTagging
+-- import qualified Amazonka.ResourceGroupsTagging.GetResources as GetResources
+-- import qualified Amazonka.ResourceGroupsTagging.Types.ResourceTagMapping as ResourceTagMapping
+-- import qualified Amazonka.SecretsManager as SecretsManager
+-- import qualified Amazonka.SecretsManager.GetSecretValue as GetSecretValue
+-- import Conduit
+-- import Config
 
+-- import Control.Applicative ((<|>))
+-- import Control.Concurrent.Async (mapConcurrently_)
+-- import qualified Control.Monad.Catch as Catch
+-- import qualified Data.Aeson as Aeson
+-- import Data.Foldable (traverse_)
+-- import qualified Data.HashMap.Strict as HashMap
+-- import qualified Data.Map.Strict as Map
+-- import Data.Maybe (isJust)
+-- import Data.Text (Text)
+-- import qualified Data.Text as Text
+-- import Data.Text.Encoding as Text
+-- import Data.Traversable (for)
+-- import Database
+
+-- import Database.Bolt ((=:))
+-- import qualified Database.Bolt as Bolt
+-- import Orphans ()
+-- import System.IO (stdout)
+-- import Tags
+
+-- import Hasql.Decoders
+-- import Hasql.Encoders
+-- import Database.Bolt ((=:))
+-- import qualified Database.Bolt as Bolt
+-- import Orphans ()
+-- import System.IO (stdout)
+-- import Tags
+
+-- import Hasql.Decoders
+-- import Hasql.Encoders
+-- import Hasql.Session (run)
+
+import Algebra.Graph.Labelled ((-<), (>-))
+import qualified Algebra.Graph.Labelled as G
+import Data.Aeson
+import Data.Text (Text)
+import qualified Data.UUID.V4 as V4
+import Database.Types
+import GEXF (writeGEXF)
+
+{-
 discover :: Amazonka.Env -> Bolt.BoltCfg -> IO ()
 discover env boltcfg = do
   cleanup
@@ -514,15 +531,38 @@ ingestLogGroups db = mapM_C ingestLogGroup
             (Bolt.props ["r" =: arn, "g" =: logGroup])
         Nothing ->
           return ()
+-}
+
+{-
+newNode :: [Label] -> Properties -> IO Node
+newNode labels properties = Node <$> (Id <$> V4.nextRandom) <*> pure labels <*> pure properties
+
+newEdge :: [Label] -> Properties -> IO Edge
+newEdge labels properties = Edge <$> (Id <$> V4.nextRandom) <*> pure labels <*> pure properties
 
 main :: IO ()
 main = do
-  cfg <- Config.readConfigFile "aws-discover.yaml"
-  lgr <- Amazonka.newLogger Amazonka.Info stdout
-  discoveredEnv <- Amazonka.newEnv Amazonka.discover
-  let env =
-        discoveredEnv
-          { Amazonka.envLogger = lgr
-          , Amazonka.envRegion = Amazonka.Ireland
-          }
-  discover env (boltConfig cfg)
+  i <- newNode ["Instance"] $ object ["instanceId" .= ("inst-0001" :: Text)]
+  v1 <- newNode ["EBSVolume"] $ object ["volumeId" .= ("ebs-0001" :: Text)]
+  v2 <- newNode ["EBSVolume"] $ object ["volumeId" .= ("ebs-0002" :: Text)]
+  e1 <- newEdge ["InstanceVolume"] $ object ["mount" .= ("/dev/sda" :: Text)]
+  e2 <- newEdge ["InstanceVolume"] $ object ["mount" .= ("/dev/sdb" :: Text)]
+
+  let g = (i -< [e1] >- v1) <> (i -< [e2] >- v2)
+
+  -- cfg <- Config.readConfigFile "aws-discover.yaml"
+  -- lgr <- Amazonka.newLogger Amazonka.Info stdout
+  -- discoveredEnv <- Amazonka.newEnv Amazonka.discover
+  -- let env =
+  --       discoveredEnv
+  --         { Amazonka.envLogger = lgr
+  --         , Amazonka.envRegion = Amazonka.Ireland
+  --         }
+  -- discover env (boltConfig cfg)
+
+  -- cfg <- Config.readConfigFile "aws-discover.yaml"
+  -- r <- withDb cfg $ run (insertGraph g)
+  -- print r
+  writeGEXF "test.gexf" g
+-}
+main = undefined
