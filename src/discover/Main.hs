@@ -71,6 +71,13 @@ module Main where
 -- import qualified Data.UUID.V4 as V4
 -- import Database.Types
 -- import GEXF (writeGEXF)
+
+import Data.Function ((&))
+import qualified Data.HashMap.Strict as HM
+import qualified Data.HashSet as HS
+import qualified Data.Text as T
+import qualified Data.Text.IO as T
+import qualified Data.UUID as UUID
 import Graph
 
 {-
@@ -570,6 +577,35 @@ main = do
   e <- newEdge
   b <- newNode
 
-  let g = a -< e >- b
+  let g :: Graph [Int]
+      g =
+        a -< e >- b
+          <> b -< e >- a
+          & a # "A"
+          & a #= ["a" .= [1]]
+          & b # "B"
+          & b #= ["a" .= [2]]
+          & e # "E"
+          & e #= ["x" .= [6]]
+  -- & b
+  -- `label` "B"
+  -- & a
+  -- `mergeProperties` props ["b" .= [2]]
 
-  print g
+  -- mapM_ (\n -> print (n, HS.toList $ labels n g, HM.toList . unProperties $ properties n g)) (nodeList g)
+  mapM_ (showNode g) (nodeList g)
+  mapM_ (showEdge g) (edgeList g)
+ where
+  showNode g n = do
+    T.putStrLn $ UUID.toText (nodeId n) <> mconcat (map (" :" <>) $ HS.toList $ labels n g)
+    HM.traverseWithKey (\k v -> T.putStrLn $ "  " <> k <> " = " <> T.pack (show v)) (unProperties $ properties n g)
+
+  showEdge g (e, a, b) = do
+    T.putStrLn $
+      UUID.toText (nodeId a)
+        <> " - "
+        <> UUID.toText (edgeId e)
+        <> mconcat (map (" :" <>) $ HS.toList $ labels e g)
+        <> " -> "
+        <> UUID.toText (nodeId b)
+    HM.traverseWithKey (\k v -> T.putStrLn $ "  " <> k <> " = " <> T.pack (show v)) (unProperties $ properties e g)
