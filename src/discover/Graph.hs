@@ -4,8 +4,13 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 
-module Graph where
+module Graph (
+  module Graph,
+  Aeson.KeyValue (..),
+) where
 
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.Hashable (Hashable)
@@ -15,7 +20,7 @@ import Data.UUID
 import qualified Data.UUID.V4 as V4
 import qualified Graph.Properties as Prop
 
-type Graph a = Prop.Graph Edge Node (Attributes a)
+type Graph = Prop.Graph Edge Node Attributes
 
 newtype Node = Node {nodeId :: UUID}
   deriving (Show, Eq, Ord, Hashable)
@@ -27,25 +32,18 @@ type Label = Text
 
 type Labels = HS.HashSet Label
 
-newtype Properties a = Properties {unProperties :: HM.HashMap Text a}
-  deriving (Show, Functor)
+type Properties = Aeson.Object
 
-instance Semigroup a => Semigroup (Properties a) where
-  Properties a <> Properties b = Properties (HM.unionWith (<>) a b)
-
-instance Semigroup a => Monoid (Properties a) where
-  mempty = Properties HM.empty
-
-data Attributes a = Attributes
-  { attrLabels :: Labels
-  , attrProperties :: Properties a
+data Attributes = Attributes
+  { attrLabels :: !Labels
+  , attrProperties :: !Properties
   }
   deriving (Show)
 
-instance Semigroup a => Semigroup (Attributes a) where
+instance Semigroup Attributes where
   a <> b = Attributes (attrLabels a <> attrLabels b) (attrProperties a <> attrProperties b)
 
-instance Semigroup a => Monoid (Attributes a) where
+instance Monoid Attributes where
   mempty = Attributes mempty mempty
 
 newNode :: IO Node
@@ -54,37 +52,37 @@ newNode = Node <$> V4.nextRandom
 newEdge :: IO Edge
 newEdge = Edge <$> V4.nextRandom
 
-empty :: Graph a
+empty :: Graph
 empty = Prop.empty
 
-vertex :: Semigroup a => Node -> Graph a
+vertex :: Node -> Graph
 vertex = Prop.vertex
 
-edge :: Semigroup a => Edge -> Node -> Node -> Graph a
+edge :: Edge -> Node -> Node -> Graph
 edge = Prop.edge
 
 (-<) :: Node -> Edge -> (Node, Edge)
 a -< e = (a, e)
 
-(>-) :: Semigroup a => (Node, Edge) -> Node -> Graph a
+(>-) :: (Node, Edge) -> Node -> Graph
 (a, e) >- b = edge e a b
 
 infixl 8 -<, >-
 
-(#) :: HasAttributes a => a -> Text -> Graph b -> Graph b
+(#) :: HasAttributes a => a -> Text -> Graph -> Graph
 (#) = label
 
-(#=) :: (HasAttributes a, Semigroup b) => a -> [Property b] -> Graph b -> Graph b
-a #= p = mergeProperties a (props p)
+(#=) :: (HasAttributes a) => a -> Properties -> Graph -> Graph
+a #= p = mergeProperties a p
 
 infix 7 #, #=
 
 class HasAttributes a where
-  maybeAttributes :: a -> Graph b -> Maybe (Attributes b)
-  attributes :: a -> Graph b -> Attributes b
-  default attributes :: (Show a) => a -> Graph b -> Attributes b
+  maybeAttributes :: a -> Graph -> Maybe Attributes
+  attributes :: a -> Graph -> Attributes
+  default attributes :: (Show a) => a -> Graph -> Attributes
   attributes a g = fromMaybe (error $ "Missing attributes for " <> show a) $ maybeAttributes a g
-  adjustAttributes :: (Attributes b -> Attributes b) -> a -> Graph b -> Graph b
+  adjustAttributes :: (Attributes -> Attributes) -> a -> Graph -> Graph
   {-# MINIMAL maybeAttributes, adjustAttributes #-}
 
 instance HasAttributes Node where
@@ -95,34 +93,29 @@ instance HasAttributes Edge where
   maybeAttributes n = HM.lookup n . Prop.edgeProperties
   adjustAttributes f = Prop.mapEdgeProperties . HM.adjust f
 
-labels :: HasAttributes a => a -> Graph b -> Labels
+labels :: HasAttributes a => a -> Graph -> Labels
 labels a = attrLabels . attributes a
 
-properties :: HasAttributes a => a -> Graph b -> Properties b
+properties :: HasAttributes a => a -> Graph -> Properties
 properties a = attrProperties . attributes a
 
-adjustLabels :: HasAttributes a => (Labels -> Labels) -> a -> Graph b -> Graph b
+adjustLabels :: HasAttributes a => (Labels -> Labels) -> a -> Graph -> Graph
 adjustLabels f = adjustAttributes (\a -> a{attrLabels = f (attrLabels a)})
 
-adjustProperties :: HasAttributes a => (Properties b -> Properties b) -> a -> Graph b -> Graph b
+adjustProperties :: HasAttributes a => (Properties -> Properties) -> a -> Graph -> Graph
 adjustProperties f = adjustAttributes (\a -> a{attrProperties = f (attrProperties a)})
 
-label :: HasAttributes a => a -> Text -> Graph b -> Graph b
+label :: HasAttributes a => a -> Text -> Graph -> Graph
 label a l = adjustLabels (HS.insert l) a
 
-mergeProperties :: (HasAttributes a, Semigroup b) => a -> Properties b -> Graph b -> Graph b
+mergeProperties :: (HasAttributes a) => a -> Properties -> Graph -> Graph
 mergeProperties a p = adjustProperties (<> p) a
 
-data Property a = Prop Text a
+props :: [(Aeson.Key, Aeson.Value)] -> Aeson.Object
+props = KeyMap.fromList
 
-(.=) :: Text -> a -> Property a
-a .= b = Prop a b
-
-props :: [Property a] -> Properties a
-props ps = Properties $ HM.fromList [(k, v) | Prop k v <- ps]
-
-nodeList :: Graph a -> [Node]
+nodeList :: Graph -> [Node]
 nodeList = Prop.vertexList
 
-edgeList :: Graph a -> [(Edge, Node, Node)]
+edgeList :: Graph -> [(Edge, Node, Node)]
 edgeList = Prop.edgeList

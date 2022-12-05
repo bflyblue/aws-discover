@@ -72,11 +72,17 @@ module Main where
 -- import Database.Types
 -- import GEXF (writeGEXF)
 
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Encode.Pretty as Pretty
+import qualified Data.Aeson.Key as Key
+import qualified Data.Aeson.KeyMap as KeyMap
 import Data.Function ((&))
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
+import Data.String (IsString (..))
 import qualified Data.Text as T
-import qualified Data.Text.IO as T
+import qualified Data.Text.Lazy.Builder as T
+import qualified Data.Text.Lazy.IO as T
 import qualified Data.UUID as UUID
 import Graph
 
@@ -571,22 +577,25 @@ main = do
   -- print r
   writeGEXF "test.gexf" g
 -}
+text :: String -> T.Text
+text = fromString
+
 main :: IO ()
 main = do
   a <- newNode
   e <- newEdge
   b <- newNode
 
-  let g :: Graph [Int]
+  let g :: Graph
       g =
         a -< e >- b
           <> b -< e >- a
           & a # "A"
-          & a #= ["a" .= [1]]
+          & a #= ["label" .= text "A"]
           & b # "B"
-          & b #= ["a" .= [2]]
+          & b #= ["label" .= text "B"]
           & e # "E"
-          & e #= ["x" .= [6]]
+          & e #= ["label" .= text "E"]
   -- & b
   -- `label` "B"
   -- & a
@@ -597,15 +606,25 @@ main = do
   mapM_ (showEdge g) (edgeList g)
  where
   showNode g n = do
-    T.putStrLn $ UUID.toText (nodeId n) <> mconcat (map (" :" <>) $ HS.toList $ labels n g)
-    HM.traverseWithKey (\k v -> T.putStrLn $ "  " <> k <> " = " <> T.pack (show v)) (unProperties $ properties n g)
+    printLB $
+      uuid (nodeId n)
+        <> labelList (labels n g)
+    printLB $
+      Pretty.encodePrettyToTextBuilder (properties n g)
 
   showEdge g (e, a, b) = do
-    T.putStrLn $
-      UUID.toText (nodeId a)
-        <> " - "
-        <> UUID.toText (edgeId e)
-        <> mconcat (map (" :" <>) $ HS.toList $ labels e g)
-        <> " -> "
-        <> UUID.toText (nodeId b)
-    HM.traverseWithKey (\k v -> T.putStrLn $ "  " <> k <> " = " <> T.pack (show v)) (unProperties $ properties e g)
+    printLB $
+      uuid (nodeId a)
+        <> T.fromText " - "
+        <> uuid (edgeId e)
+        <> labelList (labels e g)
+        <> T.fromText " -> "
+        <> uuid (nodeId b)
+    printLB $
+      Pretty.encodePrettyToTextBuilder (properties e g)
+
+  printLB = T.putStrLn . T.toLazyText
+
+  uuid = T.fromText . UUID.toText
+
+  labelList = mconcat . map (\l -> T.fromText " :" <> T.fromText l) . HS.toList

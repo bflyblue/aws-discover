@@ -7,9 +7,9 @@ import qualified Data.HashMap.Strict as HM
 import Data.Hashable (Hashable)
 
 data Graph e v p = Graph
-  { graph :: Labelled.Graph [e] v
-  , vertexProperties :: HM.HashMap v p
-  , edgeProperties :: HM.HashMap e p
+  { graph :: !(Labelled.Graph [e] v)
+  , vertexProperties :: !(HM.HashMap v p)
+  , edgeProperties :: !(HM.HashMap e p)
   }
   deriving (Show)
 
