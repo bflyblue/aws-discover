@@ -30,12 +30,17 @@ library
     , aeson
     , algebraic-graphs
     , amazonka-ec2
+    , bytestring
     , contravariant-extras
     , data-default
     , hasbolt
     , hashable
     , hasql >= 1.6.2
+    , hasql-dynamic-statements >= 0.3.1.2
+    , hasql-implicits >= 0.1
+    , mtl
     , resourcet
+    , template-haskell
     , text
     , unordered-containers
     , uuid
@@ -45,7 +50,6 @@ library
     Config
     Database
     Database.Types
-    Graph.Properties
 
 executable aws-discover
   main-is:          Main.hs
@@ -56,7 +60,7 @@ executable aws-discover
                   -- , Tags
                   -- , GEXF
                   -- , AWS.Instances
-                  , Graph
+                  -- , Graph
   build-depends:
       aws-discover
     , base

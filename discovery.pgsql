@@ -1,15 +1,15 @@
 CREATE TABLE nodes (
-    id uuid NOT NULL PRIMARY KEY,
+    id serial NOT NULL PRIMARY KEY,
     labels text[],
     properties jsonb
 );
 
 CREATE TABLE edges (
-    id uuid NOT NULL PRIMARY KEY,
+    id serial NOT NULL PRIMARY KEY,
     labels text[],
     properties jsonb,
-    a uuid REFERENCES nodes(id) ON DELETE CASCADE ON UPDATE CASCADE,
-    b uuid REFERENCES nodes(id) ON DELETE CASCADE ON UPDATE CASCADE
+    a int REFERENCES nodes(id) ON DELETE CASCADE ON UPDATE CASCADE,
+    b int REFERENCES nodes(id) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 CREATE INDEX node_labels ON nodes USING gin (labels);

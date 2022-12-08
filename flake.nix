@@ -28,6 +28,8 @@
         haskellPackages = pkgs.haskellPackages.override {
           overrides = self: super: {
             hasql = hlib.dontCheck super.hasql_1_6_2;
+            hasql-dynamic-statements =
+              hlib.dontCheck super.hasql-dynamic-statements_0_3_1_2;
             postgresql-binary = hlib.dontCheck super.postgresql-binary_0_13_1;
             text-builder = super.text-builder_0_6_7;
             text-builder-dev = super.text-builder-dev_0_3_3;
