@@ -10,15 +10,11 @@ module Database where
 
 import Config
 
--- import Control.Monad.State.Strict
+import Control.Monad (unless)
 import qualified Data.Aeson.KeyMap as KeyMap
 import Data.Aeson.Types
-import Data.Functor.Contravariant ((>$), (>$<))
-
--- import Data.HashMap.Strict (HashMap)
--- import qualified Data.HashMap.Strict as HashMap
-
 import Data.ByteString (ByteString)
+import Data.Functor.Contravariant ((>$), (>$<))
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as HashSet
 import Data.Int
@@ -26,6 +22,8 @@ import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
 import qualified Hasql.Connection as Hasql
 import qualified Hasql.Decoders as D
+import qualified Hasql.DynamicStatements.Session as Hasql
+import qualified Hasql.DynamicStatements.Snippet as Snippet
 import qualified Hasql.Encoders as E
 import Hasql.Implicits.Encoders
 import qualified Hasql.Session as Hasql
@@ -85,6 +83,61 @@ instance HasTable Node where
 
 instance HasTable Edge where
   tableName = "edges"
+
+data MatchExpr
+  = HasLabels Labels
+  | HasProperties Properties
+  | PropCmp Text Cmp Value
+  | MatchAnd MatchExpr MatchExpr
+  | MatchOr MatchExpr MatchExpr
+  | MatchNot MatchExpr
+
+hasLabels :: Labels -> MatchExpr
+hasLabels = HasLabels
+
+hasLabel :: Label -> MatchExpr
+hasLabel a = HasLabels $ mkLabels [a]
+
+hasProperties :: Properties -> MatchExpr
+hasProperties = HasProperties
+
+(.=), (.!=), (.<), (.<=), (.>), (.>=) :: Text -> Value -> MatchExpr
+f .= v = PropCmp f CmpEq v
+f .!= v = PropCmp f CmpNeq v
+f .< v = PropCmp f CmpLt v
+f .<= v = PropCmp f CmpLte v
+f .> v = PropCmp f CmpGt v
+f .>= v = PropCmp f CmpGte v
+
+infix 4 .=, .!=, .<, .<=, .>, .>=
+
+(.&), (.|) :: MatchExpr -> MatchExpr -> MatchExpr
+(.&) = MatchAnd
+(.|) = MatchOr
+
+infixl 3 .&
+infixl 2 .|
+
+not :: MatchExpr -> MatchExpr
+not = MatchNot
+
+matchExpr :: MatchExpr -> Snippet.Snippet
+matchExpr (HasLabels labels) = "(labels @> " <> Snippet.param labels <> ")"
+matchExpr (HasProperties props) = "(properties @> " <> Snippet.param props <> ")"
+matchExpr (PropCmp field op val) = "(properties->" <> Snippet.param field <> cmpExpr op <> Snippet.param val <> ")"
+matchExpr (MatchAnd a b) = "(" <> matchExpr a <> " and " <> matchExpr b <> ")"
+matchExpr (MatchOr a b) = "(" <> matchExpr a <> " or " <> matchExpr b <> ")"
+matchExpr (MatchNot a) = "not(" <> matchExpr a <> ")"
+
+cmpExpr :: Cmp -> Snippet.Snippet
+cmpExpr CmpEq = "="
+cmpExpr CmpGt = "<"
+cmpExpr CmpLt = ">"
+cmpExpr CmpGte = ">="
+cmpExpr CmpLte = "<="
+cmpExpr CmpNeq = "!="
+
+data Cmp = CmpEq | CmpLt | CmpGt | CmpLte | CmpGte | CmpNeq
 
 mkLabels :: [Label] -> Labels
 mkLabels = Labels . HashSet.fromList
@@ -158,6 +211,9 @@ instance DefaultParamEncoder Labels where
 instance DefaultParamEncoder Properties where
   defaultParam = E.nonNullable propertiesEncoder
 
+instance DefaultParamEncoder (Id a) where
+  defaultParam = E.nonNullable idEncoder
+
 toProperties :: Value -> Properties
 toProperties (Object o) = Properties o
 toProperties _ = error "Only objects accepted"
@@ -192,7 +248,8 @@ createEdge labels props a b = Hasql.statement () statement
     D.singleRow (D.column (D.nonNullable idDecoder))
 
 addLabels :: forall a. HasTable a => Labels -> [Id a] -> Db ()
-addLabels labels nodes = Hasql.statement () statement
+addLabels labels nodes =
+  unless (HashSet.null $ unLabels labels) $ Hasql.statement () statement
  where
   statement = Hasql.Statement sql encoder decoder True
   sql = "update " <> tableName @a <> " set labels = array(select distinct unnest(labels || $1)) where id = any($2)"
@@ -202,7 +259,8 @@ addLabels labels nodes = Hasql.statement () statement
   decoder = D.noResult
 
 addProperties :: forall a. HasTable a => Properties -> [Id a] -> Db ()
-addProperties props nodes = Hasql.statement () statement
+addProperties props nodes =
+  unless (KeyMap.null $ unProperties props) $ Hasql.statement () statement
  where
   statement = Hasql.Statement sql encoder decoder True
   sql = "update " <> tableName @a <> " set properties = properties || $1 where id = any($2)"
@@ -210,3 +268,39 @@ addProperties props nodes = Hasql.statement () statement
     (props >$ E.param (E.nonNullable propertiesEncoder))
       <> (nodes >$ E.param (E.nonNullable (E.foldableArray (E.nonNullable idEncoder))))
   decoder = D.noResult
+
+matchNode :: MatchExpr -> Db [Id Node]
+matchNode expr = Hasql.dynamicallyParameterizedStatement sql decoder True
+ where
+  sql = "select id from nodes where " <> matchExpr expr
+  decoder = D.rowList (D.column (D.nonNullable idDecoder))
+
+matchEdge :: MatchExpr -> Maybe (Id Node) -> Maybe (Id Node) -> Db [Id Edge]
+matchEdge expr a b = Hasql.dynamicallyParameterizedStatement sql decoder True
+ where
+  sql =
+    "select id from edges where "
+      <> matchExpr expr
+      <> maybeNode "a" a
+      <> maybeNode "b" b
+  maybeNode _ Nothing = mempty
+  maybeNode field (Just nodeid) = " and " <> field <> "=" <> Snippet.param nodeid
+  decoder = D.rowList (D.column (D.nonNullable idDecoder))
+
+mergeNode :: Labels -> Properties -> Db [Id Node]
+mergeNode labels props = do
+  ns <- matchNode (hasLabels labels .& hasProperties props)
+  case ns of
+    [] -> do
+      n <- createNode labels props
+      pure [n]
+    xs -> pure xs
+
+mergeEdge :: Labels -> Properties -> Id Node -> Id Node -> Db [Id Edge]
+mergeEdge labels props a b = do
+  ns <- matchEdge (hasLabels labels .& hasProperties props) (Just a) (Just b)
+  case ns of
+    [] -> do
+      n <- createEdge labels props a b
+      pure [n]
+    xs -> pure xs
