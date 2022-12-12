@@ -1,37 +1,42 @@
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE GADTs #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 
 module Database where
 
 import Config
-import Control.Monad.Reader
+
+-- import Control.Monad.State.Strict
 import qualified Data.Aeson.KeyMap as KeyMap
 import Data.Aeson.Types
 import Data.Functor.Contravariant ((>$), (>$<))
-import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HashMap
+
+-- import Data.HashMap.Strict (HashMap)
+-- import qualified Data.HashMap.Strict as HashMap
+
+import Data.ByteString (ByteString)
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as HashSet
 import Data.Int
 import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
-import qualified Hasql.Connection as Connection
+import qualified Hasql.Connection as Hasql
 import qualified Hasql.Decoders as D
 import qualified Hasql.Encoders as E
 import Hasql.Implicits.Encoders
 import qualified Hasql.Session as Hasql
 import qualified Hasql.Statement as Hasql
 
-withDb :: Config -> (Connection.Connection -> IO a) -> IO a
+withDb :: Config -> (Hasql.Connection -> IO a) -> IO a
 withDb cfg f = do
   let PostgresConfig{host, port, user, password, name} = database cfg
   connection <-
-    Connection.acquire
-      ( Connection.settings
+    Hasql.acquire
+      ( Hasql.settings
           (encodeUtf8 host)
           port
           (encodeUtf8 user)
@@ -42,10 +47,8 @@ withDb cfg f = do
     Left err -> error (show err)
     Right con -> do
       r <- f con
-      Connection.release con
+      Hasql.release con
       return r
-
-type Id = Int32
 
 type Label = Text
 
@@ -56,25 +59,46 @@ newtype Properties = Properties {unProperties :: Object}
   deriving (Show, Eq, Ord, Semigroup, Monoid)
 
 data Node = Node
-  { nodeId :: Id
+  { nodeId :: Id Node
   , nodeLabels :: Labels
   , nodeProperties :: Properties
   }
   deriving (Show)
 
 data Edge = Edge
-  { edgeId :: Id
+  { edgeId :: Id Edge
   , edgeLabels :: Labels
   , edgeProperties :: Properties
-  , edgeA :: Id
-  , edgeB :: Id
+  , edgeA :: Id Node
+  , edgeB :: Id Node
   }
   deriving (Show)
+
+newtype Id a = Id {unId :: Int32}
+  deriving (Show, Eq, Ord)
+
+class HasTable a where
+  tableName :: ByteString
+
+instance HasTable Node where
+  tableName = "nodes"
+
+instance HasTable Edge where
+  tableName = "edges"
+
+mkLabels :: [Label] -> Labels
+mkLabels = Labels . HashSet.fromList
+
+mkProps :: [(Key, Value)] -> Properties
+mkProps = Properties . KeyMap.fromList
+
+idEncoder :: E.Value (Id a)
+idEncoder = unId >$< E.int4
 
 nodeEncoder :: E.Value Node
 nodeEncoder =
   E.composite
-    ( (nodeId >$< E.field (E.nonNullable E.int4))
+    ( (nodeId >$< E.field (E.nonNullable idEncoder))
         <> (nodeLabels >$< E.field (E.nonNullable labelsEncoder))
         <> (nodeProperties >$< E.field (E.nonNullable propertiesEncoder))
     )
@@ -82,11 +106,11 @@ nodeEncoder =
 edgeEncoder :: E.Value Edge
 edgeEncoder =
   E.composite
-    ( (edgeId >$< E.field (E.nonNullable E.int4))
+    ( (edgeId >$< E.field (E.nonNullable idEncoder))
         <> (edgeLabels >$< E.field (E.nonNullable labelsEncoder))
         <> (edgeProperties >$< E.field (E.nonNullable propertiesEncoder))
-        <> (edgeA >$< E.field (E.nonNullable E.int4))
-        <> (edgeB >$< E.field (E.nonNullable E.int4))
+        <> (edgeA >$< E.field (E.nonNullable idEncoder))
+        <> (edgeB >$< E.field (E.nonNullable idEncoder))
     )
 
 labelsEncoder :: E.Value Labels
@@ -95,11 +119,14 @@ labelsEncoder = unLabels >$< E.foldableArray (E.nonNullable E.text)
 propertiesEncoder :: E.Value Properties
 propertiesEncoder = Object . unProperties >$< E.jsonb
 
+idDecoder :: D.Value (Id a)
+idDecoder = Id <$> D.int4
+
 nodeDecoder :: D.Value Node
 nodeDecoder =
   D.composite $
     Node
-      <$> D.field (D.nonNullable D.int4)
+      <$> D.field (D.nonNullable idDecoder)
       <*> D.field (D.nonNullable labelsDecoder)
       <*> D.field (D.nonNullable propertiesDecoder)
 
@@ -107,11 +134,11 @@ edgeDecoder :: D.Value Edge
 edgeDecoder =
   D.composite $
     Edge
-      <$> D.field (D.nonNullable D.int4)
+      <$> D.field (D.nonNullable idDecoder)
       <*> D.field (D.nonNullable labelsDecoder)
       <*> D.field (D.nonNullable propertiesDecoder)
-      <*> D.field (D.nonNullable D.int4)
-      <*> D.field (D.nonNullable D.int4)
+      <*> D.field (D.nonNullable idDecoder)
+      <*> D.field (D.nonNullable idDecoder)
 
 labelsDecoder :: D.Value Labels
 labelsDecoder = Labels . HashSet.fromList <$> D.listArray (D.nonNullable D.text)
@@ -135,81 +162,51 @@ toProperties :: Value -> Properties
 toProperties (Object o) = Properties o
 toProperties _ = error "Only objects accepted"
 
-type VarName = Text
+type Db = Hasql.Session
 
-data Expr a where
-  Lit :: DefaultParamEncoder a => a -> Expr a
-  Let :: Let b => VarName -> Expr b -> Expr a -> Expr a
-  NewNode :: Expr Labels -> Expr Properties -> Expr Node
-  AddNodeLabels :: Expr Labels -> VarName -> Expr ()
+run :: Db a -> Hasql.Connection -> IO a
+run a conn = either (error . show) return =<< Hasql.run a conn
 
--- MergeNodeProperties :: Expr Properties -> Expr Id -> Expr ()
--- MatchNode :: Labels -> Properties -> Expr Id
-
-lit :: DefaultParamEncoder a => a -> Expr a
-lit = Lit
-
-mkLabels :: [Label] -> Labels
-mkLabels = Labels . HashSet.fromList
-
-mkProps :: [(Key, Value)] -> Properties
-mkProps = Properties . KeyMap.fromList
-
-data Var = VNode Node | VEdge Edge
-
-type E = ReaderT (HashMap Text Var) Hasql.Session
-
-runE :: E a -> Hasql.Session a
-runE a = runReaderT a HashMap.empty
-
-runExpr :: Expr a -> Hasql.Session a
-runExpr = runE . go
-
-go :: Expr a -> E a
-go (Lit a) = pure a
-go (Let name val expr) = letin name val expr
-go (NewNode labels props) = do
-  l <- go labels
-  p <- go props
-  newNode l p
-go (AddNodeLabels labels var) = do
-  l <- go labels
-  vars <- ask
-  case HashMap.lookup var vars of
-    Just (VNode node) -> addNodeLabels l (nodeId node)
-    Just _ -> error "expecting variable of type Node"
-    Nothing -> error "missing variable"
-
-class Let a where
-  letin :: Text -> Expr a -> Expr b -> E b
-
-instance Let Node where
-  letin name val expr = do
-    v <- go val
-    local (HashMap.insert name (VNode v)) (go expr)
-
-instance Let Edge where
-  letin name val expr = do
-    v <- go val
-    local (HashMap.insert name (VEdge v)) (go expr)
-
-newNode :: Labels -> Properties -> E Node
-newNode labels props = lift $ Hasql.statement () s
+createNode :: Labels -> Properties -> Db (Id Node)
+createNode labels props = Hasql.statement () statement
  where
-  s = Hasql.Statement sql encoder decoder True
-  sql = "insert into nodes (labels, properties) values ($1, $2) returning nodes"
+  statement = Hasql.Statement sql encoder decoder True
+  sql = "insert into nodes (labels, properties) values ($1, $2) returning id"
   encoder =
     (labels >$ E.param (E.nonNullable labelsEncoder))
       <> (props >$ E.param (E.nonNullable propertiesEncoder))
   decoder =
-    D.singleRow (D.column (D.nonNullable nodeDecoder))
+    D.singleRow (D.column (D.nonNullable idDecoder))
 
-addNodeLabels :: Labels -> Id -> E ()
-addNodeLabels labels nodeid = lift $ Hasql.statement () s
+createEdge :: Labels -> Properties -> Id Node -> Id Node -> Db (Id Edge)
+createEdge labels props a b = Hasql.statement () statement
  where
-  s = Hasql.Statement sql encoder decoder True
-  sql = "update nodes set labels = array(select distinct unnest(labels || $1)) where id = $2"
+  statement = Hasql.Statement sql encoder decoder True
+  sql = "insert into edges (labels, properties, a, b) values ($1, $2, $3, $4) returning id"
   encoder =
     (labels >$ E.param (E.nonNullable labelsEncoder))
-      <> (nodeid >$ E.param (E.nonNullable E.int4))
+      <> (props >$ E.param (E.nonNullable propertiesEncoder))
+      <> (a >$ E.param (E.nonNullable idEncoder))
+      <> (b >$ E.param (E.nonNullable idEncoder))
+  decoder =
+    D.singleRow (D.column (D.nonNullable idDecoder))
+
+addLabels :: forall a. HasTable a => Labels -> [Id a] -> Db ()
+addLabels labels nodes = Hasql.statement () statement
+ where
+  statement = Hasql.Statement sql encoder decoder True
+  sql = "update " <> tableName @a <> " set labels = array(select distinct unnest(labels || $1)) where id = any($2)"
+  encoder =
+    (labels >$ E.param (E.nonNullable labelsEncoder))
+      <> (nodes >$ E.param (E.nonNullable (E.foldableArray (E.nonNullable idEncoder))))
+  decoder = D.noResult
+
+addProperties :: forall a. HasTable a => Properties -> [Id a] -> Db ()
+addProperties props nodes = Hasql.statement () statement
+ where
+  statement = Hasql.Statement sql encoder decoder True
+  sql = "update " <> tableName @a <> " set properties = properties || $1 where id = any($2)"
+  encoder =
+    (props >$ E.param (E.nonNullable propertiesEncoder))
+      <> (nodes >$ E.param (E.nonNullable (E.foldableArray (E.nonNullable idEncoder))))
   decoder = D.noResult
