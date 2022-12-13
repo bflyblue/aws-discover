@@ -6,6 +6,7 @@ import Database.Types
 
 import qualified Data.Aeson.Types as Aeson
 import Data.Text (Text)
+import GHC.Exts (fromList)
 import qualified Hasql.DynamicStatements.Snippet as Snippet
 
 data MatchExpr
@@ -22,27 +23,27 @@ hasLabels :: Labels -> MatchExpr
 hasLabels = HasLabels
 
 hasLabel :: Label -> MatchExpr
-hasLabel a = HasLabels $ mkLabels [a]
+hasLabel a = HasLabels $ fromList [a]
 
 hasProperties :: Properties -> MatchExpr
 hasProperties = HasProperties
 
-(.=), (.!=), (.<), (.<=), (.>), (.>=) :: Text -> Aeson.Value -> MatchExpr
-f .= v = PropCmp f Eq v
-f .!= v = PropCmp f Neq v
-f .< v = PropCmp f Lt v
-f .<= v = PropCmp f Lte v
-f .> v = PropCmp f Gt v
-f .>= v = PropCmp f Gte v
+(.=.), (.!=.), (.<.), (.<=.), (.>.), (.>=.) :: Text -> Aeson.Value -> MatchExpr
+f .=. v = PropCmp f Eq v
+f .!=. v = PropCmp f Neq v
+f .<. v = PropCmp f Lt v
+f .<=. v = PropCmp f Lte v
+f .>. v = PropCmp f Gt v
+f .>=. v = PropCmp f Gte v
 
-infix 4 .=, .!=, .<, .<=, .>, .>=
+infix 4 .=., .!=., .<., .<=., .>., .>=.
 
-(.&), (.|) :: MatchExpr -> MatchExpr -> MatchExpr
-(.&) = MatchAnd
-(.|) = MatchOr
+(.&.), (.|.) :: MatchExpr -> MatchExpr -> MatchExpr
+(.&.) = MatchAnd
+(.|.) = MatchOr
 
-infixl 3 .&
-infixl 2 .|
+infixl 3 .&.
+infixl 2 .|.
 
 not :: MatchExpr -> MatchExpr
 not = MatchNot

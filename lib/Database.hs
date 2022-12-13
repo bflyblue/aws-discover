@@ -9,6 +9,7 @@ module Database (
   module Database,
   module Database.Match,
   module Database.Types,
+  Hasql.Connection,
 ) where
 
 import Config
@@ -47,8 +48,8 @@ withDb cfg f = do
       Hasql.release con
       return r
 
-run :: Db a -> Hasql.Connection -> IO a
-run a conn = either (error . show) return =<< Hasql.run a conn
+run :: Hasql.Connection -> Db a -> IO a
+run conn a = either (error . show) return =<< Hasql.run a conn
 
 createNode :: Labels -> Properties -> Db (Id Node)
 createNode labels props = Hasql.statement () statement
@@ -116,7 +117,7 @@ matchEdge expr a b = Hasql.dynamicallyParameterizedStatement sql decoder True
 
 mergeNode :: Labels -> Properties -> Db [Id Node]
 mergeNode labels props = do
-  ns <- matchNode (hasLabels labels .& hasProperties props)
+  ns <- matchNode (hasLabels labels .&. hasProperties props)
   case ns of
     [] -> do
       n <- createNode labels props
@@ -125,7 +126,7 @@ mergeNode labels props = do
 
 mergeEdge :: Labels -> Properties -> Id Node -> Id Node -> Db [Id Edge]
 mergeEdge labels props a b = do
-  ns <- matchEdge (hasLabels labels .& hasProperties props) (Just a) (Just b)
+  ns <- matchEdge (hasLabels labels .&. hasProperties props) (Just a) (Just b)
   case ns of
     [] -> do
       n <- createEdge labels props a b

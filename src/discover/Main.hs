@@ -2,16 +2,28 @@
 
 module Main where
 
+import qualified Amazonka
+import System.IO (stdout)
+
+import qualified AWS.EC2.Instances
+import qualified AWS.EC2.Vpcs
 import Config
-import Control.Monad (forM_, void)
-import Database
 
 main :: IO ()
 main = do
   cfg <- readConfigFile "aws-discover.yaml"
-  r <- withDb cfg (run example)
-  print r
+  lgr <- Amazonka.newLogger Amazonka.Info stdout
+  discoveredEnv <- Amazonka.newEnv Amazonka.discover
+  let env =
+        discoveredEnv
+          { Amazonka.envLogger = lgr
+          , Amazonka.envRegion = Amazonka.Ireland
+          }
 
+  AWS.EC2.Instances.discover env cfg
+  AWS.EC2.Vpcs.discover env cfg
+
+{-
 example :: Db ([Id Node], [Id Node])
 example = do
   as <- mergeNode (mkLabels ["Instance"]) (mkProps [("name", "inst1")])
@@ -28,6 +40,7 @@ example = do
 
   -- return (n, e)
   return (as, bs)
+-}
 
 {-
   MATCH (n) WHERE n.a = 'b' SET n.x = 'y'

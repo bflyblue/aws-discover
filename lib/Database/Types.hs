@@ -1,9 +1,11 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Database.Types where
 
+import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.Aeson.Types as Aeson
 import Data.ByteString (ByteString)
@@ -12,6 +14,7 @@ import Data.HashSet (HashSet)
 import qualified Data.HashSet as HashSet
 import Data.Int (Int32)
 import Data.Text (Text)
+import GHC.Exts (IsList (..))
 import qualified Hasql.Decoders as D
 import qualified Hasql.Encoders as E
 import Hasql.Implicits.Encoders (DefaultParamEncoder (..))
@@ -128,8 +131,15 @@ toProperties :: Aeson.Value -> Properties
 toProperties (Aeson.Object o) = Properties o
 toProperties _ = error "Only objects accepted"
 
-mkLabels :: [Label] -> Labels
-mkLabels = Labels . HashSet.fromList
+instance IsList Labels where
+  type Item Labels = Label
+  fromList = Labels . HashSet.fromList
+  toList = HashSet.toList . unLabels
 
-mkProps :: [(Aeson.Key, Aeson.Value)] -> Properties
-mkProps = Properties . KeyMap.fromList
+instance IsList Properties where
+  type Item Properties = Aeson.Pair
+  fromList = Properties . KeyMap.fromList
+  toList = KeyMap.toList . unProperties
+
+properties :: [Aeson.Pair] -> Properties
+properties = fromList
