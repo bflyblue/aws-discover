@@ -55,10 +55,9 @@ import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map.Strict as Map
 import qualified Data.Scientific as Scientific
 import qualified Data.Text as Text
-import Database.Bolt ((=:))
-import qualified Database.Bolt as Bolt
 import Numeric.Natural (Natural)
 
+{-
 instance Bolt.IsValue Natural where
   toValue = Bolt.toValue . fromIntegral @Natural @Integer
 
@@ -329,3 +328,4 @@ instance Bolt.IsValue Aeson.Value where
     Right i -> Bolt.I i
   toValue (Aeson.Bool b) = Bolt.B b
   toValue Aeson.Null = Bolt.N ()
+  -}

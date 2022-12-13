@@ -28,27 +28,17 @@ library
   build-depends:
     , base
     , aeson
-    , algebraic-graphs
-    , amazonka-ec2
     , bytestring
-    , contravariant-extras
-    , data-default
-    , hasbolt
-    , hashable
     , hasql >= 1.6.2
     , hasql-dynamic-statements >= 0.3.1.2
     , hasql-implicits >= 0.1
-    , mtl
-    , resourcet
-    , template-haskell
     , text
     , unordered-containers
-    , uuid
-    , vector
     , yaml
   exposed-modules:
     Config
     Database
+    Database.Match
     Database.Types
 
 executable aws-discover
@@ -57,16 +47,11 @@ executable aws-discover
   default-language: Haskell2010
   ghc-options:      -Wall -O -threaded
   other-modules:    Orphans
-                  -- , Tags
-                  -- , GEXF
-                  -- , AWS.Instances
-                  -- , Graph
   build-depends:
       aws-discover
     , base
     , aeson
     , aeson-pretty
-    , algebraic-graphs
     , amazonka
     , amazonka-apigateway
     , amazonka-apigatewayv2
@@ -77,19 +62,10 @@ executable aws-discover
     , amazonka-resourcegroupstagging
     , amazonka-s3
     , amazonka-secretsmanager
-    , async
     , bytestring
     , conduit
     , containers
-    , data-default
     , exceptions
-    , hasbolt
-    , hashable
-    , hasql >= 1.6.2
-    , resourcet
     , scientific
     , text
     , unordered-containers
-    , uuid
-    , xml-conduit
-    , yaml
