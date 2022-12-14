@@ -3,11 +3,13 @@
 module Main where
 
 import qualified Amazonka
+import Data.Time.Clock (getCurrentTime)
 import System.IO (stdout)
 
 import qualified AWS.EC2.Instances
+import qualified AWS.EC2.Subnets
 import qualified AWS.EC2.Vpcs
-import Config
+import Config (readConfigFile)
 
 main :: IO ()
 main = do
@@ -20,28 +22,8 @@ main = do
           , Amazonka.envRegion = Amazonka.Ireland
           }
 
-  AWS.EC2.Instances.discover env cfg
-  AWS.EC2.Vpcs.discover env cfg
+  now <- getCurrentTime
 
-{-
-example :: Db ([Id Node], [Id Node])
-example = do
-  as <- mergeNode (mkLabels ["Instance"]) (mkProps [("name", "inst1")])
-  bs <- mergeNode (mkLabels ["VPC"]) (mkProps [("name", "vpc1")])
-
-  forM_ as $ \a -> do
-    forM_ bs $ \b -> do
-      void $ mergeEdge (mkLabels ["InVPC"]) (mkProps []) a b
-
-  addProperties (mkProps [("architecture", "x64")]) as
-
-  -- n <- matchNode (hasLabel "Instance" .& "name" .= "inst1" .| "architecture" .= "x64")
-  -- e <- matchEdge (hasLabel "InVPC") (Just a) (Just b)
-
-  -- return (n, e)
-  return (as, bs)
--}
-
-{-
-  MATCH (n) WHERE n.a = 'b' SET n.x = 'y'
--}
+  AWS.EC2.Instances.discover env cfg now
+  AWS.EC2.Vpcs.discover env cfg now
+  AWS.EC2.Subnets.discover env cfg now

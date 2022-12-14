@@ -115,20 +115,26 @@ matchEdge expr a b = Hasql.dynamicallyParameterizedStatement sql decoder True
   maybeNode field (Just nodeid) = " and " <> field <> "=" <> Snippet.param nodeid
   decoder = D.rowList (D.column (D.nonNullable idDecoder))
 
-mergeNode :: Labels -> Properties -> Db [Id Node]
+data Merge a = Created !a | Matched !a
+
+merged :: Merge a -> a
+merged (Created a) = a
+merged (Matched a) = a
+
+mergeNode :: Labels -> Properties -> Db (Merge [Id Node])
 mergeNode labels props = do
   ns <- matchNode (hasLabels labels .&. hasProperties props)
   case ns of
     [] -> do
       n <- createNode labels props
-      pure [n]
-    xs -> pure xs
+      pure (Created [n])
+    xs -> pure (Matched xs)
 
-mergeEdge :: Labels -> Properties -> Id Node -> Id Node -> Db [Id Edge]
+mergeEdge :: Labels -> Properties -> Id Node -> Id Node -> Db (Merge [Id Edge])
 mergeEdge labels props a b = do
   ns <- matchEdge (hasLabels labels .&. hasProperties props) (Just a) (Just b)
   case ns of
     [] -> do
       n <- createEdge labels props a b
-      pure [n]
-    xs -> pure xs
+      pure (Created [n])
+    xs -> pure (Matched xs)

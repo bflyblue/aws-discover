@@ -31,9 +31,13 @@ import qualified Amazonka.EC2.Types.InstanceState as InstanceState
 import qualified Amazonka.EC2.Types.LicenseConfiguration as LicenseConfiguration
 import qualified Amazonka.EC2.Types.Monitoring as Monitoring
 import qualified Amazonka.EC2.Types.Placement as Placement
+import qualified Amazonka.EC2.Types.PrivateDnsNameOptionsOnLaunch as PrivateDnsNameOptionsOnLaunch
 import qualified Amazonka.EC2.Types.PrivateDnsNameOptionsResponse as PrivateDnsNameOptionsResponse
 import qualified Amazonka.EC2.Types.ProductCode as ProductCode
 import qualified Amazonka.EC2.Types.StateReason as StateReason
+import qualified Amazonka.EC2.Types.Subnet as Subnet
+import qualified Amazonka.EC2.Types.SubnetCidrBlockState as SubnetCidrBlockState
+import qualified Amazonka.EC2.Types.SubnetIpv6CidrBlockAssociation as SubnetIpv6CidrBlockAssociation
 import qualified Amazonka.EC2.Types.Vpc as Vpc
 import qualified Amazonka.EC2.Types.VpcCidrBlockAssociation as VpcCidrBlockAssociation
 import qualified Amazonka.EC2.Types.VpcCidrBlockState as VpcCidrBlockState
@@ -119,6 +123,9 @@ instance ToJSON Monitoring.Monitoring where
 instance ToJSON Placement.Placement where
   toEncoding = genericToEncoding defaultOptions
 
+instance ToJSON PrivateDnsNameOptionsOnLaunch.PrivateDnsNameOptionsOnLaunch where
+  toEncoding = genericToEncoding defaultOptions
+
 instance ToJSON PrivateDnsNameOptionsResponse.PrivateDnsNameOptionsResponse where
   toEncoding = genericToEncoding defaultOptions
 
@@ -126,6 +133,15 @@ instance ToJSON ProductCode.ProductCode where
   toEncoding = genericToEncoding defaultOptions
 
 instance ToJSON StateReason.StateReason where
+  toEncoding = genericToEncoding defaultOptions
+
+instance ToJSON SubnetCidrBlockState.SubnetCidrBlockState where
+  toEncoding = genericToEncoding defaultOptions
+
+instance ToJSON Subnet.Subnet where
+  toEncoding = genericToEncoding defaultOptions
+
+instance ToJSON SubnetIpv6CidrBlockAssociation.SubnetIpv6CidrBlockAssociation where
   toEncoding = genericToEncoding defaultOptions
 
 instance ToJSON EC2.Tag where

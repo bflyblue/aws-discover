@@ -15,6 +15,7 @@ import Conduit
 import Config
 import Data.Aeson (KeyValue (..))
 import Data.Text (Text)
+import Data.Time.Clock (UTCTime)
 import Database
 
 fetchAllEc2Instances :: MonadResource m => Amazonka.Env -> ConduitM () (Amazonka.Region, Text, Instance.Instance) m ()
@@ -32,20 +33,22 @@ fetchAllEc2Instances env = do
     concatMapC $ \r ->
       maybe [] (map (Amazonka.envRegion env,Reservation.ownerId r,)) (Reservation.instances r)
 
-ingestInstances :: MonadIO m => Connection -> ConduitT (Amazonka.Region, Amazonka.Text, Instance.Instance) Void m ()
-ingestInstances conn = mapM_C ingestInstance
+ingestInstances :: MonadIO m => Connection -> UTCTime -> ConduitT (Amazonka.Region, Amazonka.Text, Instance.Instance) Void m ()
+ingestInstances conn now = mapM_C ingestInstance
  where
   ingestInstance :: MonadIO m => (Amazonka.Region, Text, Instance.Instance) -> m ()
   ingestInstance (region, owner, inst) = liftIO $
     run conn $ do
       r <- mergeNode ["Resource"] (properties ["resourceARN" .= arn, "region" .= region, "ownerId" .= owner])
-      addLabels ["Instance"] r
-      addProperties (toProps inst) r
+      addLabels ["Instance"] (merged r)
+      addProperties (toProps inst) (merged r)
+      case r of
+        Created a -> addProperties (properties ["firstSeen" .= now]) a
+        Matched a -> addProperties (properties ["lastSeen" .= now]) a
    where
     arn = "arn:aws:ec2:" <> Amazonka.fromRegion region <> ":" <> owner <> ":instance/" <> Instance.instanceId inst
 
-discover :: Amazonka.Env -> Config -> IO ()
-discover env cfg = do
-  r <- withDb cfg $ \conn -> do
-    runResourceT $ runConduit $ fetchAllEc2Instances env .| ingestInstances conn
-  print r
+discover :: Amazonka.Env -> Config -> UTCTime -> IO ()
+discover env cfg now =
+  withDb cfg $ \conn ->
+    runResourceT $ runConduit $ fetchAllEc2Instances env .| ingestInstances conn now

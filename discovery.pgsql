@@ -67,3 +67,19 @@ CREATE VIEW vpcs AS
     (nodes.properties ->> 'cidrBlock') AS "cidrBlock"
    FROM nodes
   WHERE (nodes.labels @> '{Vpc}');
+
+CREATE VIEW subnets AS
+ SELECT nodes.id,
+    (nodes.properties ->> 'resourceARN') AS "arn",
+    (nodes.properties ->> 'subnetId') AS "subnetId",
+    (nodes.properties ->> 'ownerId') AS "ownerId",
+    (nodes.properties ->> 'region') AS "region",
+    ( SELECT tags.value
+           FROM tags
+          WHERE ((tags.id = nodes.id) AND (tags.key = 'Name'))) AS name,
+    (nodes.properties ->> 'state') AS state,
+    (nodes.properties ->> 'vpcId') AS "vpcId",
+    (nodes.properties ->> 'cidrBlock') AS "cidrBlock",
+    (nodes.properties ->> 'availabilityZone') AS "availabilityZone"
+   FROM nodes
+  WHERE (nodes.labels @> '{Subnet}');

@@ -48,6 +48,7 @@ executable aws-discover
   ghc-options:      -Wall -O -threaded
   other-modules:    AWS.EC2.Instances
                     AWS.EC2.Orphans
+                    AWS.EC2.Subnets
                     AWS.EC2.Vpcs
   build-depends:
       aws-discover
@@ -70,4 +71,5 @@ executable aws-discover
     , exceptions
     , scientific
     , text
+    , time
     , unordered-containers
