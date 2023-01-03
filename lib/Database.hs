@@ -51,29 +51,29 @@ withDb cfg f = do
 run :: Hasql.Connection -> Db a -> IO a
 run conn a = either (error . show) return =<< Hasql.run a conn
 
-createNode :: Labels -> Properties -> Db (Id Node)
+createNode :: Labels -> Properties -> Db Node
 createNode labels props = Hasql.statement () statement
  where
   statement = Hasql.Statement sql encoder decoder True
-  sql = "insert into nodes (labels, properties) values ($1, $2) returning id"
+  sql = "insert into nodes (labels, properties) values ($1, $2) returning row(nodes.*)"
   encoder =
     (labels >$ E.param (E.nonNullable labelsEncoder))
       <> (props >$ E.param (E.nonNullable propertiesEncoder))
   decoder =
-    D.singleRow (D.column (D.nonNullable idDecoder))
+    D.singleRow (D.column (D.nonNullable nodeDecoder))
 
-createEdge :: Labels -> Properties -> Id Node -> Id Node -> Db (Id Edge)
+createEdge :: Labels -> Properties -> Id Node -> Id Node -> Db Edge
 createEdge labels props a b = Hasql.statement () statement
  where
   statement = Hasql.Statement sql encoder decoder True
-  sql = "insert into edges (labels, properties, a, b) values ($1, $2, $3, $4) returning id"
+  sql = "insert into edges (labels, properties, a, b) values ($1, $2, $3, $4) returning row(edges.*)"
   encoder =
     (labels >$ E.param (E.nonNullable labelsEncoder))
       <> (props >$ E.param (E.nonNullable propertiesEncoder))
       <> (a >$ E.param (E.nonNullable idEncoder))
       <> (b >$ E.param (E.nonNullable idEncoder))
   decoder =
-    D.singleRow (D.column (D.nonNullable idDecoder))
+    D.singleRow (D.column (D.nonNullable edgeDecoder))
 
 addLabels :: forall a. HasTable a => Labels -> [Id a] -> Db ()
 addLabels labels nodes =
@@ -97,23 +97,23 @@ addProperties props nodes =
       <> (nodes >$ E.param (E.nonNullable (E.foldableArray (E.nonNullable idEncoder))))
   decoder = D.noResult
 
-matchNode :: MatchExpr -> Db [Id Node]
+matchNode :: MatchExpr -> Db [Node]
 matchNode expr = Hasql.dynamicallyParameterizedStatement sql decoder True
  where
-  sql = "select id from nodes where " <> matchExpr expr
-  decoder = D.rowList (D.column (D.nonNullable idDecoder))
+  sql = "select row(nodes.*) from nodes where " <> matchExpr expr
+  decoder = D.rowList (D.column (D.nonNullable nodeDecoder))
 
-matchEdge :: MatchExpr -> Maybe (Id Node) -> Maybe (Id Node) -> Db [Id Edge]
+matchEdge :: MatchExpr -> Maybe (Id Node) -> Maybe (Id Node) -> Db [Edge]
 matchEdge expr a b = Hasql.dynamicallyParameterizedStatement sql decoder True
  where
   sql =
-    "select id from edges where "
+    "select row(edges.*) from edges where "
       <> matchExpr expr
       <> maybeNode "a" a
       <> maybeNode "b" b
   maybeNode _ Nothing = mempty
   maybeNode field (Just nodeid) = " and " <> field <> "=" <> Snippet.param nodeid
-  decoder = D.rowList (D.column (D.nonNullable idDecoder))
+  decoder = D.rowList (D.column (D.nonNullable edgeDecoder))
 
 data Merge a = Created !a | Matched !a
 
@@ -121,7 +121,7 @@ merged :: Merge a -> a
 merged (Created a) = a
 merged (Matched a) = a
 
-mergeNode :: Labels -> Properties -> Db (Merge [Id Node])
+mergeNode :: Labels -> Properties -> Db (Merge [Node])
 mergeNode labels props = do
   ns <- matchNode (hasLabels labels .&. hasProperties props)
   case ns of
@@ -130,7 +130,7 @@ mergeNode labels props = do
       pure (Created [n])
     xs -> pure (Matched xs)
 
-mergeEdge :: Labels -> Properties -> Id Node -> Id Node -> Db (Merge [Id Edge])
+mergeEdge :: Labels -> Properties -> Id Node -> Id Node -> Db (Merge [Edge])
 mergeEdge labels props a b = do
   ns <- matchEdge (hasLabels labels .&. hasProperties props) (Just a) (Just b)
   case ns of

@@ -40,11 +40,11 @@ ingestInstances conn now = mapM_C ingestInstance
   ingestInstance (region, owner, inst) = liftIO $
     run conn $ do
       r <- mergeNode ["Resource"] (properties ["resourceARN" .= arn, "region" .= region, "ownerId" .= owner])
-      addLabels ["Instance"] (merged r)
-      addProperties (toProps inst) (merged r)
+      addLabels ["Instance"] (nodeId <$> merged r)
+      addProperties (toProps inst) (nodeId <$> merged r)
       case r of
-        Created a -> addProperties (properties ["firstSeen" .= now]) a
-        Matched a -> addProperties (properties ["lastSeen" .= now]) a
+        Created a -> addProperties (properties ["firstSeen" .= now]) (nodeId <$> a)
+        Matched a -> addProperties (properties ["lastSeen" .= now]) (nodeId <$> a)
    where
     arn = "arn:aws:ec2:" <> Amazonka.fromRegion region <> ":" <> owner <> ":instance/" <> Instance.instanceId inst
 

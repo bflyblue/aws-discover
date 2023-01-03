@@ -33,11 +33,11 @@ ingestVpcs conn now = mapM_C ingestInstance
   ingestInstance (region, vpc) = liftIO $
     run conn $ do
       r <- mergeNode ["Resource"] (properties ["resourceARN" .= arn, "region" .= region])
-      addLabels ["Vpc"] (merged r)
-      addProperties (toProps vpc) (merged r)
+      addLabels ["Vpc"] (nodeId <$> merged r)
+      addProperties (toProps vpc) (nodeId <$> merged r)
       case r of
-        Created a -> addProperties (properties ["firstSeen" .= now]) a
-        Matched a -> addProperties (properties ["lastSeen" .= now]) a
+        Created a -> addProperties (properties ["firstSeen" .= now]) (nodeId <$> a)
+        Matched a -> addProperties (properties ["lastSeen" .= now]) (nodeId <$> a)
    where
     arn = "arn:aws:ec2:" <> Amazonka.fromRegion region <> ":" <> fromMaybe "" (Vpc.ownerId vpc) <> ":vpc/" <> Vpc.vpcId vpc
 

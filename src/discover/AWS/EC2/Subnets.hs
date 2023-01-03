@@ -28,11 +28,11 @@ ingestSubnets conn now = mapM_C ingestSubnet
   ingestSubnet (region, subnet) = liftIO $
     run conn $ do
       r <- mergeNode ["Resource"] (properties ["resourceARN" .= Subnet.subnetArn subnet, "ownerId" .= Subnet.ownerId subnet, "region" .= region])
-      addLabels ["Subnet"] (merged r)
-      addProperties (toProps subnet) (merged r)
+      addLabels ["Subnet"] (nodeId <$> merged r)
+      addProperties (toProps subnet) (nodeId <$> merged r)
       case r of
-        Created a -> addProperties (properties ["firstSeen" .= now]) a
-        Matched a -> addProperties (properties ["lastSeen" .= now]) a
+        Created a -> addProperties (properties ["firstSeen" .= now]) (nodeId <$> a)
+        Matched a -> addProperties (properties ["lastSeen" .= now]) (nodeId <$> a)
 
 discover :: Amazonka.Env -> Config -> UTCTime -> IO ()
 discover env cfg now =
