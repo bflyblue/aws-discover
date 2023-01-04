@@ -13,11 +13,14 @@ data MatchExpr
   = HasLabels Labels
   | HasProperties Properties
   | PropCmp Text Cmp Aeson.Value
+  | PropIn Text In [Aeson.Value]
   | MatchAnd MatchExpr MatchExpr
   | MatchOr MatchExpr MatchExpr
   | MatchNot MatchExpr
 
 data Cmp = Eq | Lt | Lte | Gt | Gte | Neq
+
+data In = In | NotIn
 
 hasLabels :: Labels -> MatchExpr
 hasLabels = HasLabels
@@ -27,6 +30,12 @@ hasLabel a = HasLabels $ fromList [a]
 
 hasProperties :: Properties -> MatchExpr
 hasProperties = HasProperties
+
+propertyIn :: Text -> [Aeson.Value] -> MatchExpr
+propertyIn f = PropIn f In
+
+propertyNotIn :: Text -> [Aeson.Value] -> MatchExpr
+propertyNotIn f = PropIn f NotIn
 
 (.=.), (.!=.), (.<.), (.<=.), (.>.), (.>=.) :: Text -> Aeson.Value -> MatchExpr
 f .=. v = PropCmp f Eq v
@@ -52,6 +61,8 @@ matchExpr :: MatchExpr -> Snippet.Snippet
 matchExpr (HasLabels labels) = "(labels @> " <> Snippet.param labels <> ")"
 matchExpr (HasProperties props) = "(properties @> " <> Snippet.param props <> ")"
 matchExpr (PropCmp field op val) = "(properties->" <> Snippet.param field <> cmpExpr op <> Snippet.param val <> ")"
+matchExpr (PropIn field In vals) = "(properties->" <> Snippet.param field <> "= any(" <> Snippet.param vals <> "))"
+matchExpr (PropIn field NotIn vals) = "(properties->" <> Snippet.param field <> "!= all(" <> Snippet.param vals <> ")"
 matchExpr (MatchAnd a b) = "(" <> matchExpr a <> " and " <> matchExpr b <> ")"
 matchExpr (MatchOr a b) = "(" <> matchExpr a <> " or " <> matchExpr b <> ")"
 matchExpr (MatchNot a) = "not(" <> matchExpr a <> ")"
