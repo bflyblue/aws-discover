@@ -98,7 +98,6 @@ CREATE VIEW lambdas AS
     (nodes.properties ->> 'resourceARN') AS "arn",
     (nodes.properties ->> 'codeSize') AS "codeSize",
     (nodes.properties ->> 'description') AS "description",
-    (nodes.properties ->> 'functionArn') AS "functionArn",
     (nodes.properties ->> 'functionName') AS "functionName",
     (nodes.properties ->> 'handler') AS "handler",
     (nodes.properties ->> 'memorySize') AS "memorySize",
@@ -106,7 +105,6 @@ CREATE VIEW lambdas AS
     (nodes.properties ->> 'role''') AS "role",
     (nodes.properties ->> 'runtime') AS "runtime",
     (nodes.properties ->> 'timeout') AS "timeout",
-    (nodes.properties ->> 'state') AS state,
     (nodes.properties -> 'vpcConfig' ->> 'vpcId') AS "vpcId"
    FROM nodes
   WHERE (nodes.labels @> '{Lambda}');

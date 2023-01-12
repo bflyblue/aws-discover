@@ -11,8 +11,8 @@ import Config (readConfigFile)
 import Database
 
 import qualified Amazonka
-import Control.Monad (forM_)
-import Data.Aeson (KeyValue (..))
+import Control.Monad (forM_, void)
+import Data.Aeson (KeyValue (..), object)
 import qualified Data.Aeson.KeyMap as KeyMap
 import Data.Time.Clock (getCurrentTime)
 import System.IO (stdout)
@@ -37,9 +37,14 @@ main = do
 
   withDb cfg $ \pool ->
     run pool $ do
-      is <- matchNode (hasLabel "Instance")
-      forM_ is $ \i -> do
-        vs <- matchNode (hasLabel "Vpc" .&. hasProperties (properties ["vpcId" .= KeyMap.lookup "vpcId" (unProperties $ nodeProperties i)]))
-        forM_ vs $ \v -> do
-          _ <- mergeEdge ["InVpc"] (properties []) (nodeId i) (nodeId v)
-          return ()
+      vs <- matchNode (hasLabel "Vpc")
+      forM_ vs $ \v -> do
+        let vpcId = KeyMap.lookup "vpcId" (unProperties $ nodeProperties v)
+        matchNode
+          ( hasLabel "Instance" .&. hasProperties (properties ["vpcId" .= vpcId])
+          )
+          >>= mapM_ (\x -> void $ mergeEdge ["InVpc"] (properties []) (nodeId x) (nodeId v))
+        matchNode
+          ( hasLabel "Lambda" .&. hasProperties (properties ["vpcConfig" .= object ["vpcId" .= vpcId]])
+          )
+          >>= mapM_ (\x -> void $ mergeEdge ["InVpc"] (properties []) (nodeId x) (nodeId v))
