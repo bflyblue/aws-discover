@@ -3,19 +3,19 @@
 
 module Main where
 
-import qualified Amazonka
-import Data.Time.Clock (getCurrentTime)
-import System.IO (stdout)
-
 import qualified AWS.EC2.Instances
 import qualified AWS.EC2.Subnets
 import qualified AWS.EC2.Vpcs
+import qualified AWS.Lambda.Functions
 import Config (readConfigFile)
+import Database
 
+import qualified Amazonka
 import Control.Monad (forM_)
 import Data.Aeson (KeyValue (..))
 import qualified Data.Aeson.KeyMap as KeyMap
-import Database
+import Data.Time.Clock (getCurrentTime)
+import System.IO (stdout)
 
 main :: IO ()
 main = do
@@ -33,6 +33,7 @@ main = do
   AWS.EC2.Instances.discover env cfg now
   AWS.EC2.Vpcs.discover env cfg now
   AWS.EC2.Subnets.discover env cfg now
+  AWS.Lambda.Functions.discover env cfg now
 
   withDb cfg $ \pool ->
     run pool $ do

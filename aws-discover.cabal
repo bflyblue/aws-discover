@@ -1,6 +1,6 @@
-cabal-version:      2.4
-name:               aws-discover
-version:            0.1.0.0
+cabal-version: 2.4
+name:          aws-discover
+version:       0.1.0.0
 
 -- A short (one-line) description of the package.
 -- synopsis:
@@ -13,8 +13,8 @@ version:            0.1.0.0
 
 -- The license under which the package is released.
 -- license:
-author:             Shaun Sharples
-maintainer:         shaun.sharples@gmail.com
+author:        Shaun Sharples
+maintainer:    shaun.sharples@gmail.com
 
 -- A copyright notice.
 -- copyright:
@@ -26,18 +26,19 @@ library
   default-language: Haskell2010
   ghc-options:      -Wall -O
   build-depends:
-    , base
     , aeson
+    , base
     , bytestring
-    , hasql >= 1.6.2
-    , hasql-dynamic-statements >= 0.3.1.2
-    , hasql-implicits >= 0.1
+    , hasql                     >=1.6.2
+    , hasql-dynamic-statements  >=0.3.1.2
+    , hasql-implicits           >=0.1
     , hasql-pool
-    , text
     , mtl
     , pipes
+    , text
     , unordered-containers
     , yaml
+
   exposed-modules:
     Config
     Database
@@ -49,13 +50,15 @@ executable aws-discover
   hs-source-dirs:   src/discover
   default-language: Haskell2010
   ghc-options:      -Wall -O -threaded
-  other-modules:    AWS.EC2.Instances
-                    AWS.EC2.Orphans
-                    AWS.EC2.Subnets
-                    AWS.EC2.Vpcs
+  other-modules:
+    AWS.EC2.Instances
+    AWS.EC2.Orphans
+    AWS.EC2.Subnets
+    AWS.EC2.Vpcs
+    AWS.Lambda.Functions
+    AWS.Lambda.Orphans
+
   build-depends:
-      aws-discover
-    , base
     , aeson
     , aeson-pretty
     , amazonka
@@ -68,6 +71,8 @@ executable aws-discover
     , amazonka-resourcegroupstagging
     , amazonka-s3
     , amazonka-secretsmanager
+    , aws-discover
+    , base
     , bytestring
     , conduit
     , containers

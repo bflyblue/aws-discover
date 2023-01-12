@@ -34,6 +34,15 @@ CREATE VIEW tags AS
            FROM nodes
           WHERE (jsonb_typeof((nodes.properties -> 'tags')) = 'array')) a;
 
+CREATE VIEW environments AS
+ SELECT a.id,
+    (a.env).key AS key,
+    (a.env).value AS value
+   FROM ( SELECT nodes.id,
+            jsonb_each(nodes.properties -> 'environment' -> 'variables') AS env
+           FROM nodes
+          WHERE (jsonb_typeof((nodes.properties -> 'environment' -> 'variables')) = 'object')) a;
+
 CREATE VIEW ec2_instances AS
  SELECT nodes.id,
     (nodes.properties ->> 'resourceARN') AS "arn",
@@ -83,3 +92,21 @@ CREATE VIEW subnets AS
     (nodes.properties ->> 'availabilityZone') AS "availabilityZone"
    FROM nodes
   WHERE (nodes.labels @> '{Subnet}');
+
+CREATE VIEW lambdas AS
+ SELECT nodes.id,
+    (nodes.properties ->> 'resourceARN') AS "arn",
+    (nodes.properties ->> 'codeSize') AS "codeSize",
+    (nodes.properties ->> 'description') AS "description",
+    (nodes.properties ->> 'functionArn') AS "functionArn",
+    (nodes.properties ->> 'functionName') AS "functionName",
+    (nodes.properties ->> 'handler') AS "handler",
+    (nodes.properties ->> 'memorySize') AS "memorySize",
+    (nodes.properties ->> 'packageType') AS "packageType",
+    (nodes.properties ->> 'role''') AS "role",
+    (nodes.properties ->> 'runtime') AS "runtime",
+    (nodes.properties ->> 'timeout') AS "timeout",
+    (nodes.properties ->> 'state') AS state,
+    (nodes.properties -> 'vpcConfig' ->> 'vpcId') AS "vpcId"
+   FROM nodes
+  WHERE (nodes.labels @> '{Lambda}');

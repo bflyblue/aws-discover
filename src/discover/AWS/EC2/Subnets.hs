@@ -6,7 +6,7 @@
 
 module AWS.EC2.Subnets where
 
-import AWS.EC2.Orphans
+import AWS.EC2.Orphans ()
 import qualified Amazonka
 import qualified Amazonka.EC2.DescribeSubnets as DescribeSubnets
 import qualified Amazonka.EC2.Types.Subnet as Subnet

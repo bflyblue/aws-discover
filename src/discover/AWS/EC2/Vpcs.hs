@@ -6,7 +6,7 @@
 
 module AWS.EC2.Vpcs where
 
-import AWS.EC2.Orphans
+import AWS.EC2.Orphans ()
 import qualified Amazonka
 import qualified Amazonka.EC2.DescribeVpcs as DescribeVpcs
 import qualified Amazonka.EC2.Types.Vpc as Vpc

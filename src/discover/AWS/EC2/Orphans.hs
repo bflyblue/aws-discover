@@ -3,7 +3,6 @@
 module AWS.EC2.Orphans where
 
 import Data.Aeson
-import Database.Types
 
 import qualified Amazonka.EC2.Types as EC2
 import qualified Amazonka.EC2.Types.CapacityReservationSpecificationResponse as CapacityReservationSpecificationResponse
@@ -42,11 +41,6 @@ import qualified Amazonka.EC2.Types.Vpc as Vpc
 import qualified Amazonka.EC2.Types.VpcCidrBlockAssociation as VpcCidrBlockAssociation
 import qualified Amazonka.EC2.Types.VpcCidrBlockState as VpcCidrBlockState
 import qualified Amazonka.EC2.Types.VpcIpv6CidrBlockAssociation as VpcIpv6CidrBlockAssociation
-
-toProps :: ToJSON a => a -> Properties
-toProps a = case toJSON a of
-  Object o -> Properties o
-  _ -> error "expected Object"
 
 instance ToJSON CapacityReservationSpecificationResponse.CapacityReservationSpecificationResponse where
   toEncoding = genericToEncoding defaultOptions

@@ -18,6 +18,7 @@ import Database.Match
 import Database.Types
 
 import Control.Monad (unless)
+import Data.Aeson (ToJSON (toJSON), Value (Object))
 import qualified Data.Aeson.KeyMap as KeyMap
 import Data.Functor.Contravariant ((>$))
 import qualified Data.HashSet as HashSet
@@ -134,3 +135,8 @@ mergeEdge labels props a b = do
       n <- createEdge labels props a b
       pure (Created [n])
     xs -> pure (Matched xs)
+
+toProps :: ToJSON a => a -> Properties
+toProps a = case toJSON a of
+  Object o -> Properties o
+  _ -> error "expected Object"

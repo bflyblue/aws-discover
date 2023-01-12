@@ -6,7 +6,7 @@
 
 module AWS.EC2.Instances where
 
-import AWS.EC2.Orphans
+import AWS.EC2.Orphans ()
 import qualified Amazonka
 import qualified Amazonka.EC2.DescribeInstances as DescribeInstances
 import qualified Amazonka.EC2.Types.Instance as Instance
