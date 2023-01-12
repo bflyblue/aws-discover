@@ -21,12 +21,12 @@ fetchAllSubnets env = do
   Amazonka.paginate env DescribeSubnets.newDescribeSubnets
     .| concatMapC (map (Amazonka.envRegion env,) . concat . DescribeSubnets.subnets)
 
-ingestSubnets :: MonadIO m => Connection -> UTCTime -> ConduitT (Amazonka.Region, Subnet.Subnet) Void m ()
-ingestSubnets conn now = mapM_C ingestSubnet
+ingestSubnets :: MonadIO m => Pool -> UTCTime -> ConduitT (Amazonka.Region, Subnet.Subnet) Void m ()
+ingestSubnets pool now = mapM_C ingestSubnet
  where
   ingestSubnet :: MonadIO m => (Amazonka.Region, Subnet.Subnet) -> m ()
   ingestSubnet (region, subnet) = liftIO $
-    run conn $ do
+    run pool $ do
       r <- mergeNode ["Resource"] (properties ["resourceARN" .= Subnet.subnetArn subnet, "ownerId" .= Subnet.ownerId subnet, "region" .= region])
       addLabels ["Subnet"] (nodeId <$> merged r)
       addProperties (toProps subnet) (nodeId <$> merged r)
@@ -36,5 +36,5 @@ ingestSubnets conn now = mapM_C ingestSubnet
 
 discover :: Amazonka.Env -> Config -> UTCTime -> IO ()
 discover env cfg now =
-  withDb cfg $ \conn ->
-    runResourceT $ runConduit $ fetchAllSubnets env .| ingestSubnets conn now
+  withDb cfg $ \pool ->
+    runResourceT $ runConduit $ fetchAllSubnets env .| ingestSubnets pool now

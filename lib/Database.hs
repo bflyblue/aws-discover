@@ -10,6 +10,7 @@ module Database (
   module Database.Match,
   module Database.Types,
   Hasql.Connection,
+  Pool.Pool,
 ) where
 
 import Config
@@ -26,30 +27,25 @@ import qualified Hasql.Decoders as D
 import qualified Hasql.DynamicStatements.Session as Hasql
 import qualified Hasql.DynamicStatements.Snippet as Snippet
 import qualified Hasql.Encoders as E
+import qualified Hasql.Pool as Pool
 import qualified Hasql.Session as Hasql
 import qualified Hasql.Statement as Hasql
 
-withDb :: Config -> (Hasql.Connection -> IO a) -> IO a
+withDb :: Config -> (Pool.Pool -> IO a) -> IO a
 withDb cfg f = do
   let PostgresConfig{host, port, user, password, name} = database cfg
-  connection <-
-    Hasql.acquire
-      ( Hasql.settings
+      settings =
+        Hasql.settings
           (encodeUtf8 host)
           port
           (encodeUtf8 user)
           (encodeUtf8 password)
           (encodeUtf8 name)
-      )
-  case connection of
-    Left err -> error (show err)
-    Right con -> do
-      r <- f con
-      Hasql.release con
-      return r
+  pool <- Pool.acquire 8 (Just 1000000) settings
+  f pool
 
-run :: Hasql.Connection -> Db a -> IO a
-run conn a = either (error . show) return =<< Hasql.run a conn
+run :: Pool.Pool -> Db a -> IO a
+run pool a = either (error . show) return =<< Pool.use pool a
 
 createNode :: Labels -> Properties -> Db Node
 createNode labels props = Hasql.statement () statement

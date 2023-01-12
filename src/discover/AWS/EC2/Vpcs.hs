@@ -26,12 +26,12 @@ fetchAllVpcs env = do
   vpcs = concatMapC $ \r ->
     maybe [] (map (Amazonka.envRegion env,)) (DescribeVpcs.vpcs r)
 
-ingestVpcs :: MonadIO m => Connection -> UTCTime -> ConduitT (Amazonka.Region, Vpc.Vpc) Void m ()
-ingestVpcs conn now = mapM_C ingestInstance
+ingestVpcs :: MonadIO m => Pool -> UTCTime -> ConduitT (Amazonka.Region, Vpc.Vpc) Void m ()
+ingestVpcs pool now = mapM_C ingestInstance
  where
   ingestInstance :: MonadIO m => (Amazonka.Region, Vpc.Vpc) -> m ()
   ingestInstance (region, vpc) = liftIO $
-    run conn $ do
+    run pool $ do
       r <- mergeNode ["Resource"] (properties ["resourceARN" .= arn, "region" .= region])
       addLabels ["Vpc"] (nodeId <$> merged r)
       addProperties (toProps vpc) (nodeId <$> merged r)
@@ -43,5 +43,5 @@ ingestVpcs conn now = mapM_C ingestInstance
 
 discover :: Amazonka.Env -> Config -> UTCTime -> IO ()
 discover env cfg now =
-  withDb cfg $ \conn ->
-    runResourceT $ runConduit $ fetchAllVpcs env .| ingestVpcs conn now
+  withDb cfg $ \pool ->
+    runResourceT $ runConduit $ fetchAllVpcs env .| ingestVpcs pool now

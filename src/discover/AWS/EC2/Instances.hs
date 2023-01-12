@@ -33,12 +33,12 @@ fetchAllEc2Instances env = do
     concatMapC $ \r ->
       maybe [] (map (Amazonka.envRegion env,Reservation.ownerId r,)) (Reservation.instances r)
 
-ingestInstances :: MonadIO m => Connection -> UTCTime -> ConduitT (Amazonka.Region, Amazonka.Text, Instance.Instance) Void m ()
-ingestInstances conn now = mapM_C ingestInstance
+ingestInstances :: MonadIO m => Pool -> UTCTime -> ConduitT (Amazonka.Region, Amazonka.Text, Instance.Instance) Void m ()
+ingestInstances pool now = mapM_C ingestInstance
  where
   ingestInstance :: MonadIO m => (Amazonka.Region, Text, Instance.Instance) -> m ()
   ingestInstance (region, owner, inst) = liftIO $
-    run conn $ do
+    run pool $ do
       r <- mergeNode ["Resource"] (properties ["resourceARN" .= arn, "region" .= region, "ownerId" .= owner])
       addLabels ["Instance"] (nodeId <$> merged r)
       addProperties (toProps inst) (nodeId <$> merged r)
@@ -50,5 +50,5 @@ ingestInstances conn now = mapM_C ingestInstance
 
 discover :: Amazonka.Env -> Config -> UTCTime -> IO ()
 discover env cfg now =
-  withDb cfg $ \conn ->
-    runResourceT $ runConduit $ fetchAllEc2Instances env .| ingestInstances conn now
+  withDb cfg $ \pool ->
+    runResourceT $ runConduit $ fetchAllEc2Instances env .| ingestInstances pool now

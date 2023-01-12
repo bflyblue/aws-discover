@@ -11,6 +11,7 @@ import qualified AWS.EC2.Instances
 import qualified AWS.EC2.Subnets
 import qualified AWS.EC2.Vpcs
 import Config (readConfigFile)
+
 import Control.Monad (forM_)
 import Data.Aeson (KeyValue (..))
 import qualified Data.Aeson.KeyMap as KeyMap
@@ -33,8 +34,8 @@ main = do
   AWS.EC2.Vpcs.discover env cfg now
   AWS.EC2.Subnets.discover env cfg now
 
-  withDb cfg $ \conn ->
-    run conn $ do
+  withDb cfg $ \pool ->
+    run pool $ do
       is <- matchNode (hasLabel "Instance")
       forM_ is $ \i -> do
         vs <- matchNode (hasLabel "Vpc" .&. hasProperties (properties ["vpcId" .= KeyMap.lookup "vpcId" (unProperties $ nodeProperties i)]))
