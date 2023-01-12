@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Main where
 
@@ -8,12 +9,14 @@ import qualified AWS.EC2.Subnets
 import qualified AWS.EC2.Vpcs
 import qualified AWS.Lambda.Functions
 import Config (readConfigFile)
+import Control.Concurrent.Async
 import Database
 
 import qualified Amazonka
 import Control.Monad (forM_, void)
 import Data.Aeson (KeyValue (..), object)
 import qualified Data.Aeson.KeyMap as KeyMap
+import Data.Foldable (sequenceA_)
 import Data.Time.Clock (getCurrentTime)
 import System.IO (stdout)
 
@@ -30,10 +33,13 @@ main = do
 
   now <- getCurrentTime
 
-  AWS.EC2.Instances.discover env cfg now
-  AWS.EC2.Vpcs.discover env cfg now
-  AWS.EC2.Subnets.discover env cfg now
-  AWS.Lambda.Functions.discover env cfg now
+  runConcurrently $
+    sequenceA_ @[]
+      [ Concurrently (AWS.EC2.Instances.discover env cfg now)
+      , Concurrently (AWS.EC2.Vpcs.discover env cfg now)
+      , Concurrently (AWS.EC2.Subnets.discover env cfg now)
+      , Concurrently (AWS.Lambda.Functions.discover env cfg now)
+      ]
 
   withDb cfg $ \pool ->
     run pool $ do
@@ -41,10 +47,8 @@ main = do
       forM_ vs $ \v -> do
         let vpcId = KeyMap.lookup "vpcId" (unProperties $ nodeProperties v)
         matchNode
-          ( hasLabel "Instance" .&. hasProperties (properties ["vpcId" .= vpcId])
-          )
+          (hasLabel "Instance" .&. hasProperties (properties ["vpcId" .= vpcId]))
           >>= mapM_ (\x -> void $ mergeEdge ["InVpc"] (properties []) (nodeId x) (nodeId v))
         matchNode
-          ( hasLabel "Lambda" .&. hasProperties (properties ["vpcConfig" .= object ["vpcId" .= vpcId]])
-          )
+          (hasLabel "Lambda" .&. hasProperties (properties ["vpcConfig" .= object ["vpcId" .= vpcId]]))
           >>= mapM_ (\x -> void $ mergeEdge ["InVpc"] (properties []) (nodeId x) (nodeId v))

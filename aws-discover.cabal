@@ -71,6 +71,7 @@ executable aws-discover
     , amazonka-resourcegroupstagging
     , amazonka-s3
     , amazonka-secretsmanager
+    , async
     , aws-discover
     , base
     , bytestring
