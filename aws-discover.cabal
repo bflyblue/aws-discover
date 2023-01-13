@@ -78,6 +78,7 @@ executable aws-discover
     , conduit
     , containers
     , exceptions
+    , hashable
     , scientific
     , text
     , time
