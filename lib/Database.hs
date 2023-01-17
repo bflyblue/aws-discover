@@ -22,6 +22,7 @@ import Data.Aeson (ToJSON (toJSON), Value (Object))
 import qualified Data.Aeson.KeyMap as KeyMap
 import Data.Functor.Contravariant ((>$))
 import qualified Data.HashSet as HashSet
+import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
 import qualified Hasql.Connection as Hasql
 import qualified Hasql.Decoders as D
@@ -52,7 +53,7 @@ createNode :: Labels -> Properties -> Db Node
 createNode labels props = Hasql.statement () statement
  where
   statement = Hasql.Statement sql encoder decoder True
-  sql = "insert into nodes (labels, properties) values ($1, $2) returning row(nodes.*)"
+  sql = "insert into nodes (labels, properties) values ($1, $2) returning row(id, labels, properties)"
   encoder =
     (labels >$ E.param (E.nonNullable labelsEncoder))
       <> (props >$ E.param (E.nonNullable propertiesEncoder))
@@ -63,7 +64,7 @@ createEdge :: Labels -> Properties -> Id Node -> Id Node -> Db Edge
 createEdge labels props a b = Hasql.statement () statement
  where
   statement = Hasql.Statement sql encoder decoder True
-  sql = "insert into edges (labels, properties, a, b) values ($1, $2, $3, $4) returning row(edges.*)"
+  sql = "insert into edges (labels, properties, a, b) values ($1, $2, $3, $4) returning row(id, labels, properties, a, b)"
   encoder =
     (labels >$ E.param (E.nonNullable labelsEncoder))
       <> (props >$ E.param (E.nonNullable propertiesEncoder))
@@ -97,14 +98,14 @@ addProperties props nodes =
 matchNode :: MatchExpr -> Db [Node]
 matchNode expr = Hasql.dynamicallyParameterizedStatement sql decoder True
  where
-  sql = "select row(nodes.*) from nodes where " <> matchExpr expr
+  sql = "select row(id, labels, properties) from nodes where " <> matchExpr expr
   decoder = D.rowList (D.column (D.nonNullable nodeDecoder))
 
 matchEdge :: MatchExpr -> Maybe (Id Node) -> Maybe (Id Node) -> Db [Edge]
 matchEdge expr a b = Hasql.dynamicallyParameterizedStatement sql decoder True
  where
   sql =
-    "select row(edges.*) from edges where "
+    "select row(id, labels, properties, a, b) from edges where "
       <> matchExpr expr
       <> maybeNode "a" a
       <> maybeNode "b" b
@@ -135,6 +136,19 @@ mergeEdge labels props a b = do
       n <- createEdge labels props a b
       pure (Created [n])
     xs -> pure (Matched xs)
+
+upsertNode :: (Text, Text) -> Labels -> Properties -> Db (Id Node)
+upsertNode (keyspace, key) labels props = Hasql.statement () statement
+ where
+  statement = Hasql.Statement sql encoder decoder True
+  sql = "insert into nodes (keyspace, key, labels, properties) values ($1, $2, $3, $4) on conflict (keyspace, key) do update set labels = array(select distinct unnest(nodes.labels || EXCLUDED.labels)), properties = nodes.properties || EXCLUDED.properties returning id"
+  encoder =
+    (keyspace >$ E.param (E.nonNullable E.text))
+      <> (key >$ E.param (E.nonNullable E.text))
+      <> (labels >$ E.param (E.nonNullable labelsEncoder))
+      <> (props >$ E.param (E.nonNullable propertiesEncoder))
+  decoder =
+    D.singleRow (D.column (D.nonNullable idDecoder))
 
 toProps :: ToJSON a => a -> Properties
 toProps a = case toJSON a of

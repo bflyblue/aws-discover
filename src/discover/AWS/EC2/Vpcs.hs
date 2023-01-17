@@ -12,9 +12,9 @@ import qualified Amazonka.EC2.DescribeVpcs as DescribeVpcs
 import qualified Amazonka.EC2.Types.Vpc as Vpc
 import Conduit
 import Config
+import Control.Monad (void)
 import Data.Aeson (KeyValue (..))
 import Data.Maybe (fromMaybe)
-import Data.Time.Clock (UTCTime)
 import Database
 
 fetchAllVpcs :: MonadResource m => Amazonka.Env -> ConduitM () (Amazonka.Region, Vpc.Vpc) m ()
@@ -26,22 +26,18 @@ fetchAllVpcs env = do
   vpcs = concatMapC $ \r ->
     maybe [] (map (Amazonka.envRegion env,)) (DescribeVpcs.vpcs r)
 
-ingestVpcs :: MonadIO m => Pool -> UTCTime -> ConduitT (Amazonka.Region, Vpc.Vpc) Void m ()
-ingestVpcs pool now = mapM_C ingestInstance
+ingestVpcs :: MonadIO m => Pool -> ConduitT (Amazonka.Region, Vpc.Vpc) Void m ()
+ingestVpcs pool = mapM_C ingestInstance
  where
   ingestInstance :: MonadIO m => (Amazonka.Region, Vpc.Vpc) -> m ()
   ingestInstance (region, vpc) = liftIO $
     run pool $ do
-      r <- mergeNode ["Resource"] (properties ["resourceARN" .= arn, "region" .= region])
-      addLabels ["Vpc"] (nodeId <$> merged r)
-      addProperties (toProps vpc) (nodeId <$> merged r)
-      case r of
-        Created a -> addProperties (properties ["firstSeen" .= now]) (nodeId <$> a)
-        Matched a -> addProperties (properties ["lastSeen" .= now]) (nodeId <$> a)
+      void $ upsertNode ("arn", arn) ["Resource", "Vpc"] (toProps vpc <> metadata)
    where
     arn = "arn:aws:ec2:" <> Amazonka.fromRegion region <> ":" <> fromMaybe "" (Vpc.ownerId vpc) <> ":vpc/" <> Vpc.vpcId vpc
+    metadata = properties ["resourceARN" .= arn, "region" .= region]
 
-discover :: Amazonka.Env -> Config -> UTCTime -> IO ()
-discover env cfg now =
+discover :: Amazonka.Env -> Config -> IO ()
+discover env cfg =
   withDb cfg $ \pool ->
-    runResourceT $ runConduit $ fetchAllVpcs env .| ingestVpcs pool now
+    runResourceT $ runConduit $ fetchAllVpcs env .| ingestVpcs pool

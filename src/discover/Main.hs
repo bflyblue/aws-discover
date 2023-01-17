@@ -15,7 +15,6 @@ import Control.Monad (forM_, void)
 import Data.Aeson (KeyValue (..), Value (Array), object)
 import qualified Data.Aeson.KeyMap as KeyMap
 import Data.Foldable (Foldable (toList), sequenceA_)
-import Data.Time.Clock (getCurrentTime)
 import Database
 import System.IO (stdout)
 
@@ -30,14 +29,12 @@ main = do
           , Amazonka.envRegion = Amazonka.Ireland
           }
 
-  now <- getCurrentTime
-
   runConcurrently $
     sequenceA_ @[]
-      [ Concurrently (AWS.EC2.Instances.discover env cfg now)
-      , Concurrently (AWS.EC2.Vpcs.discover env cfg now)
-      , Concurrently (AWS.EC2.Subnets.discover env cfg now)
-      , Concurrently (AWS.Lambda.Functions.discover env cfg now)
+      [ Concurrently (AWS.EC2.Instances.discover env cfg)
+      , Concurrently (AWS.EC2.Vpcs.discover env cfg)
+      , Concurrently (AWS.EC2.Subnets.discover env cfg)
+      , Concurrently (AWS.Lambda.Functions.discover env cfg)
       ]
 
   withDb cfg $ \pool ->
