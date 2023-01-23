@@ -95,18 +95,18 @@ addProperties props nodes =
       <> (nodes >$ E.param (E.nonNullable (E.foldableArray (E.nonNullable idEncoder))))
   decoder = D.noResult
 
-matchNode :: MatchExpr -> Db [Node]
+matchNode :: Match Bool -> Db [Node]
 matchNode expr = Hasql.dynamicallyParameterizedStatement sql decoder True
  where
-  sql = "select row(id, labels, properties) from nodes where " <> matchExpr expr
+  sql = "select row(id, labels, properties) from nodes where " <> match expr
   decoder = D.rowList (D.column (D.nonNullable nodeDecoder))
 
-matchEdge :: MatchExpr -> Maybe (Id Node) -> Maybe (Id Node) -> Db [Edge]
+matchEdge :: Match Bool -> Maybe (Id Node) -> Maybe (Id Node) -> Db [Edge]
 matchEdge expr a b = Hasql.dynamicallyParameterizedStatement sql decoder True
  where
   sql =
     "select row(id, labels, properties, a, b) from edges where "
-      <> matchExpr expr
+      <> match expr
       <> maybeNode "a" a
       <> maybeNode "b" b
   maybeNode _ Nothing = mempty
