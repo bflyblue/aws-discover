@@ -13,6 +13,7 @@ import qualified Amazonka.Lambda.Types.FunctionConfiguration as FunctionConfigur
 import Conduit
 import Config
 import Control.Monad (void)
+import Data.Aeson ((.=))
 import Data.Foldable (traverse_)
 import Database
 
@@ -27,9 +28,13 @@ ingestLambdas pool = mapM_C ingestLambda
   ingestLambda :: MonadIO m => Lambda.FunctionConfiguration -> m ()
   ingestLambda lambda = liftIO $
     run pool $ do
-      traverse_ (\arn' -> void $ upsertNode ("arn", arn') ["Resource", "Lambda"] (toProps lambda)) arn
+      traverse_ (\arn' -> void $ upsertNode ("arn", arn') ["Resource", "Lambda"] (toProps lambda <> meta arn')) arn
    where
     arn = FunctionConfiguration.functionArn lambda
+    meta arn' =
+      properties
+        [ "resourceARN" .= arn'
+        ]
 
 discover :: Amazonka.Env -> Config -> IO ()
 discover env cfg =

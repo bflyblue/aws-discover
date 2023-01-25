@@ -14,6 +14,7 @@ import qualified Amazonka.EC2.Types.Reservation as Reservation
 import Conduit
 import Config
 import Control.Monad (void)
+import Data.Aeson ((.=))
 import Data.Text (Text)
 import Database
 
@@ -38,9 +39,15 @@ ingestInstances pool = mapM_C ingestInstance
   ingestInstance :: MonadIO m => (Amazonka.Region, Text, Instance.Instance) -> m ()
   ingestInstance (region, owner, inst) = liftIO $
     run pool $ do
-      void $ upsertNode ("arn", arn) ["Resource", "Instance"] (toProps inst)
+      void $ upsertNode ("arn", arn) ["Resource", "Instance"] (toProps inst <> meta)
    where
     arn = "arn:aws:ec2:" <> Amazonka.fromRegion region <> ":" <> owner <> ":instance/" <> Instance.instanceId inst
+    meta =
+      properties
+        [ "resourceARN" .= arn
+        , "region" .= region
+        , "ownerId" .= owner
+        ]
 
 discover :: Amazonka.Env -> Config -> IO ()
 discover env cfg =
