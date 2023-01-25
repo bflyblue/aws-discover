@@ -25,8 +25,9 @@ data Match a where
   MLabels :: Match Labels
   MHasProperties :: Properties -> Match Bool
   MHasLabels :: Labels -> Match Bool
-  MPath :: Match a -> Path b -> Match b
+  MPath :: Match a -> Path b -> Match [b]
   MCmp :: Match a -> Cmp -> Match a -> Match Bool
+  MMember :: Match a -> Match [a] -> Match Bool
   MAnd :: Match Bool -> Match Bool -> Match Bool
   MOr :: Match Bool -> Match Bool -> Match Bool
   MNot :: Match Bool -> Match Bool
@@ -48,6 +49,9 @@ infix 4 .=., .!=., .<., .<=., .>., .>=.
 infixl 3 .&.
 infixl 2 .|.
 
+in_ :: Match a -> Match [a] -> Match Bool
+in_ = MMember
+
 not :: Match Bool -> Match Bool
 not = MNot
 
@@ -57,7 +61,7 @@ lit = MLit
 txt :: Text -> Match Text
 txt = lit
 
-props :: Path b -> Match b
+props :: Path b -> Match [b]
 props = MPath MProps
 
 ctx :: Path Aeson.Object
@@ -82,8 +86,9 @@ match MProps = "properties"
 match MLabels = "labels"
 match (MHasProperties props') = "(properties @> " <> Snippet.param props' <> ")"
 match (MHasLabels labels) = "(labels @> " <> Snippet.param labels <> ")"
-match (MPath a b) = "(" <> match a <> "=" <> path b <> ")"
+match (MPath a b) = "(jsonb_path_query_array(" <> match a <> ",'" <> path b <> "'))"
 match (MCmp a op b) = "(" <> match a <> cmp op <> match b <> ")"
+match (MMember a b) = "(" <> match b <> "@>" <> match a <> ")"
 match (MAnd a b) = "(" <> match a <> " and " <> match b <> ")"
 match (MOr a b) = "(" <> match a <> " or " <> match b <> ")"
 match (MNot a) = "not(" <> match a <> ")"

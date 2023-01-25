@@ -56,7 +56,7 @@ main = do
         case KeyMap.lookup "subnetId" (unProperties $ nodeProperties s) of
           Just subnetId -> do
             matchNode
-              (hasLabel "Lambda" .&. subnetId `propertyElemOf` "subnetIds")
+              (hasLabel "Lambda" .&. lit @Value [[subnetId]] `in_` props (ctx .- "vpcConfig" .- "subnetIds"))
               >>= mapM_ (\x -> void $ mergeEdge ["HasSubnet"] (properties []) (nodeId x) (nodeId s))
           Nothing -> return ()
 

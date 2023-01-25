@@ -1,3 +1,21 @@
+CREATE FUNCTION has_label(x record, lbl text) RETURNS boolean AS $$
+BEGIN
+  RETURN x.labels @> array[lbl];
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE FUNCTION has_labels(x record, lbls text[]) RETURNS boolean AS $$
+BEGIN
+  RETURN x.labels @> lbl;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE FUNCTION has_props(x record, props jsonb) RETURNS boolean AS $$
+BEGIN
+  RETURN x.properties @> props;
+END;
+$$ LANGUAGE plpgsql;
+
 CREATE TYPE tag AS (
 	key text,
 	value text

@@ -79,6 +79,10 @@ executable aws-discover
     , containers
     , exceptions
     , hashable
+    , hasql                           >=1.6.2
+    , hasql-dynamic-statements        >=0.3.1.2
+    , hasql-implicits                 >=0.1
+    , hasql-pool
     , scientific
     , text
     , time
