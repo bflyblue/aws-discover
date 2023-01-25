@@ -17,8 +17,9 @@ import Config
 import Database.Match
 import Database.Types
 
-import Control.Monad (unless)
-import Data.Aeson (ToJSON (toJSON), Value (Object))
+import Control.Monad (unless, void)
+import Data.Aeson (FromJSON, Result (..), ToJSON (toJSON), Value (Object), fromJSON)
+import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
 import Data.Functor.Contravariant ((>$))
 import qualified Data.HashSet as HashSet
@@ -137,6 +138,9 @@ mergeEdge labels props a b = do
       pure (Created [n])
     xs -> pure (Matched xs)
 
+mergeEdge_ :: Labels -> Properties -> Id Node -> Id Node -> Hasql.Session ()
+mergeEdge_ labels props a b = void $ mergeEdge labels props a b
+
 upsertNode :: (Text, Text) -> Labels -> Properties -> Db (Id Node)
 upsertNode (keyspace, key) labels props = Hasql.statement () statement
  where
@@ -154,3 +158,13 @@ toProps :: ToJSON a => a -> Properties
 toProps a = case toJSON a of
   Object o -> Properties o
   _ -> error "expected Object"
+
+getProperty :: Text -> Properties -> Maybe Value
+getProperty k (Properties p) = KeyMap.lookup (Key.fromText k) p
+
+decodeProperty :: FromJSON a => Text -> Properties -> Maybe a
+decodeProperty k p =
+  getProperty k p
+    >>= \v -> case fromJSON v of
+      Success a -> Just a
+      Error _ -> Nothing

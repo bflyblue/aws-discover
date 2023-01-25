@@ -1,4 +1,6 @@
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Database.Match where
@@ -6,31 +8,37 @@ module Database.Match where
 import Database.Types
 
 import qualified Data.Aeson.Types as Aeson
+import qualified Data.HashSet as HS
+import Data.Int
+import Data.String (IsString)
 import Data.Text (Text)
-import Data.Text.Encoding (encodeUtf8)
-import GHC.Exts (fromList)
 import qualified Hasql.DynamicStatements.Snippet as Snippet
 import Hasql.Implicits.Encoders (DefaultParamEncoder)
 
-data Cmp = Eq | Neq | Lt | Lte | Gt | Gte
-  deriving (Show, Eq, Ord)
+class Contains a b
 
-data Path a where
-  PCtx :: Path Aeson.Object
-  PKey :: Aeson.FromJSON a => Path Aeson.Object -> Text -> Path a
+instance {-# OVERLAPPABLE #-} Contains a a
+instance Contains [a] a
+instance Contains [a] [a]
+instance Contains Aeson.Value Aeson.Value
 
 data Match a where
   MLit :: DefaultParamEncoder a => a -> Match a
-  MProps :: Match Aeson.Object
-  MLabels :: Match Labels
-  MHasProperties :: Properties -> Match Bool
-  MHasLabels :: Labels -> Match Bool
-  MPath :: Match a -> Path b -> Match [b]
+  MCast :: Match b -> Match a
+  MProps :: Match Aeson.Value
+  MLabels :: Match [Label]
+  MIndex :: Match Aeson.Value -> Int32 -> Match Aeson.Value
+  MField :: Match Aeson.Value -> Text -> Match Aeson.Value
+  MSub :: Match Aeson.Value -> [Text] -> Match Aeson.Value
   MCmp :: Match a -> Cmp -> Match a -> Match Bool
-  MMember :: Match a -> Match [a] -> Match Bool
+  MContains :: Contains a b => Match a -> Match b -> Match Bool
+  MContainedBy :: Contains b a => Match a -> Match b -> Match Bool
   MAnd :: Match Bool -> Match Bool -> Match Bool
   MOr :: Match Bool -> Match Bool -> Match Bool
   MNot :: Match Bool -> Match Bool
+
+data Cmp = Eq | Neq | Lt | Lte | Gt | Gte
+  deriving (Show, Eq, Ord)
 
 (.=.), (.!=.), (.<.), (.<=.), (.>.), (.>=.) :: Match a -> Match a -> Match Bool
 a .=. b = MCmp a Eq b
@@ -49,28 +57,28 @@ infix 4 .=., .!=., .<., .<=., .>., .>=.
 infixl 3 .&.
 infixl 2 .|.
 
-in_ :: Match a -> Match [a] -> Match Bool
-in_ = MMember
-
 not :: Match Bool -> Match Bool
 not = MNot
 
 lit :: DefaultParamEncoder a => a -> Match a
 lit = MLit
 
-txt :: Text -> Match Text
-txt = lit
+cast :: Match b -> Match a
+cast = MCast
 
-props :: Path b -> Match [b]
-props = MPath MProps
-
-ctx :: Path Aeson.Object
-ctx = PCtx
-
-(.-) :: Aeson.FromJSON a => Path Aeson.Object -> Text -> Path a
-o .- k = PKey o k
+(.-) :: Match Aeson.Value -> Text -> Match Aeson.Value
+o .- k = MField o k
 
 infixl 9 .-
+
+(.@>.) :: Contains a b => Match a -> Match b -> Match Bool
+a .@>. b = MContains a b
+
+(.<@.) :: Contains b a => Match a -> Match b -> Match Bool
+a .<@. b = MContainedBy a b
+
+infix 6 .@>.
+infix 6 .<@.
 
 cmp :: Cmp -> Snippet.Snippet
 cmp Eq = "=="
@@ -82,65 +90,33 @@ cmp Gte = ">="
 
 match :: Match a -> Snippet.Snippet
 match (MLit a) = Snippet.param a
+match (MCast a) = match a
 match MProps = "properties"
 match MLabels = "labels"
-match (MHasProperties props') = "(properties @> " <> Snippet.param props' <> ")"
-match (MHasLabels labels) = "(labels @> " <> Snippet.param labels <> ")"
-match (MPath a b) = "(jsonb_path_query_array(" <> match a <> ",'" <> path b <> "'))"
-match (MCmp a op b) = "(" <> match a <> cmp op <> match b <> ")"
-match (MMember a b) = "(" <> match b <> "@>" <> match a <> ")"
-match (MAnd a b) = "(" <> match a <> " and " <> match b <> ")"
-match (MOr a b) = "(" <> match a <> " or " <> match b <> ")"
-match (MNot a) = "not(" <> match a <> ")"
+match (MField a f) = bracket $ match a <> "->" <> Snippet.param f
+match (MIndex a i) = bracket $ match a <> "->" <> Snippet.param i
+match (MSub a fs) = bracket $ match a <> "->" <> Snippet.param fs
+match (MCmp a op b) = bracket $ match a <> cmp op <> match b
+match (MContains a b) = bracket $ match a <> "@>" <> match b
+match (MContainedBy a b) = bracket $ match a <> "<@" <> match b
+match (MAnd a b) = bracket $ match a <> " and " <> match b
+match (MOr a b) = bracket $ match a <> " or " <> match b
+match (MNot a) = "not " <> match a
 
-path :: Path a -> Snippet.Snippet
-path PCtx = "$"
-path (PKey a b) = path a <> "." <> sqlText b
-
-sqlText :: Text -> Snippet.Snippet
-sqlText = Snippet.sql . encodeUtf8
+bracket :: (Semigroup a, IsString a) => a -> a
+bracket x = "(" <> x <> ")"
 
 hasLabels :: Labels -> Match Bool
-hasLabels = MHasLabels
+hasLabels (Labels ls) = MLabels .@>. MLit (HS.toList ls)
 
 hasLabel :: Label -> Match Bool
-hasLabel a = MHasLabels $ fromList [a]
+hasLabel = hasLabels . Labels . HS.singleton
 
 hasProperties :: Properties -> Match Bool
-hasProperties = MHasProperties
+hasProperties ps = MProps .@>. MLit (Aeson.Object $ unProperties ps)
 
-{-
-data In = In | NotIn
+labels :: Match [Label]
+labels = MLabels
 
-propertyIn :: Text -> [Aeson.Value] -> MatchExpr
-propertyIn f = PropIn f In
-
-propertyNotIn :: Text -> [Aeson.Value] -> MatchExpr
-propertyNotIn f = PropIn f NotIn
-
-propertyElemOf :: Aeson.Value -> Text -> MatchExpr
-propertyElemOf v = PropElem v In
-
-propertyNotElemOf :: Aeson.Value -> Text -> MatchExpr
-propertyNotElemOf v = PropElem v NotIn
-
-matchExpr :: MatchExpr -> Snippet.Snippet
-matchExpr (HasLabels labels) = "(labels @> " <> Snippet.param labels <> ")"
-matchExpr (HasProperties props) = "(properties @> " <> Snippet.param props <> ")"
-matchExpr (PropCmp field op val) = "(properties->" <> Snippet.param field <> cmpExpr op <> Snippet.param val <> ")"
-matchExpr (PropIn field In vals) = "(properties->" <> Snippet.param field <> "= any(" <> Snippet.param vals <> "))"
-matchExpr (PropIn field NotIn vals) = "(properties->" <> Snippet.param field <> "!= all(" <> Snippet.param vals <> ")"
-matchExpr (PropElem val In field) = "(properties->" <> Snippet.param field <> " @> " <> Snippet.param val <> ")"
-matchExpr (PropElem val NotIn field) = "not(properties->" <> Snippet.param field <> " @> " <> Snippet.param val <> ")"
-matchExpr (MatchAnd a b) = "(" <> matchExpr a <> " and " <> matchExpr b <> ")"
-matchExpr (MatchOr a b) = "(" <> matchExpr a <> " or " <> matchExpr b <> ")"
-matchExpr (MatchNot a) = "not(" <> matchExpr a <> ")"
-
-cmpExpr :: Cmp -> Snippet.Snippet
-cmpExpr Eq = "="
-cmpExpr Lt = "<"
-cmpExpr Lte = "<="
-cmpExpr Gt = ">"
-cmpExpr Gte = ">="
-cmpExpr Neq = "!="
--}
+props :: Match Aeson.Value
+props = MProps
