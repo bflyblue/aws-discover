@@ -28,7 +28,7 @@
         haskellPackages = pkgs.haskellPackages.override {
           overrides = self: super: {
             amazonka = amazonkaLib "amazonka" { };
-            amazonka-core = amazonkaLib "amazonka-core" { };
+            amazonka-core = hlib.dontCheck (amazonkaLib "amazonka-core" { });
             amazonka-test = amazonkaLib "amazonka-test" { };
             amazonka-sso = amazonkaService "amazonka-sso" { };
             amazonka-sts = amazonkaService "amazonka-sts" { };

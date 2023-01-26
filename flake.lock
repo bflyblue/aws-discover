@@ -3,8 +3,8 @@
     "amazonka": {
       "flake": false,
       "locked": {
-        "lastModified": 1668585202,
-        "narHash": "sha256-6Jr7zbvcyLwhK5RpRDS5xgHlJCfvZbMbjB27iDihR4Q=",
+        "lastModified": 1674647711,
+        "narHash": "sha256-6KZvkF9QXvVSIM15wkjM8IGJMDwJvbdMLGXw1vZ4JGM=",
         "path": "/home/shaun/devel/3rdparty/amazonka",
         "type": "path"
       },
@@ -16,11 +16,11 @@
     "flake-compat": {
       "flake": false,
       "locked": {
-        "lastModified": 1668681692,
-        "narHash": "sha256-Ht91NGdewz8IQLtWZ9LCeNXMSXHUss+9COoqu6JLmXU=",
+        "lastModified": 1673956053,
+        "narHash": "sha256-4gtG9iQuiKITOjNQQeQIpoIB6b16fm+504Ch3sNKLd8=",
         "owner": "edolstra",
         "repo": "flake-compat",
-        "rev": "009399224d5e398d03b22badca40a37ac85412a1",
+        "rev": "35bb57c0c8d8b62bbfd284272c928ceb64ddbde9",
         "type": "github"
       },
       "original": {
@@ -46,11 +46,11 @@
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1672826803,
-        "narHash": "sha256-8bBmtO6nh+k1HF1+JVu3PF/r6HmZjZ+4IMrewn+mcrI=",
+        "lastModified": 1674647451,
+        "narHash": "sha256-vhbmXvoxYak3Xx0KNeFIwdRwpcr7b0XUN51Yd0jBtSk=",
         "owner": "nixos",
         "repo": "nixpkgs",
-        "rev": "876a6f4c94b951e98b3691ec6ad5a0be1d0247c5",
+        "rev": "55e19102526fba191a5aa4b8dc4529bd3af298e2",
         "type": "github"
       },
       "original": {

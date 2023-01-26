@@ -57,6 +57,8 @@ executable aws-discover
     AWS.EC2.Vpcs
     AWS.Lambda.Functions
     AWS.Lambda.Orphans
+    AWS.ResourceGroupsTagging.Orphans
+    AWS.ResourceGroupsTagging.Resources
 
   build-depends:
     , aeson
