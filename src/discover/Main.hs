@@ -8,6 +8,7 @@ import qualified AWS.EC2.Instances
 import qualified AWS.EC2.Subnets
 import qualified AWS.EC2.Vpcs
 import qualified AWS.Lambda.Functions
+import qualified AWS.ResourceGroupsTagging.Resources
 import qualified Amazonka
 import Config (readConfigFile)
 import Control.Concurrent.Async
@@ -25,8 +26,8 @@ main = do
   discoveredEnv <- Amazonka.newEnv Amazonka.discover
   let env =
         discoveredEnv
-          { Amazonka.envLogger = lgr
-          , Amazonka.envRegion = Amazonka.Ireland
+          { Amazonka.logger = lgr
+          , Amazonka.region = Amazonka.Ireland
           }
 
   runConcurrently $
@@ -35,6 +36,7 @@ main = do
       , Concurrently (AWS.EC2.Vpcs.discover env cfg)
       , Concurrently (AWS.EC2.Subnets.discover env cfg)
       , Concurrently (AWS.Lambda.Functions.discover env cfg)
+      , Concurrently (AWS.ResourceGroupsTagging.Resources.discover env cfg)
       ]
 
   withDb cfg $ \pool ->

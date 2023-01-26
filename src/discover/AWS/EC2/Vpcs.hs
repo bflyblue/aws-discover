@@ -24,7 +24,7 @@ fetchAllVpcs env = do
  where
   vpcs :: MonadResource m => ConduitM DescribeVpcs.DescribeVpcsResponse (Amazonka.Region, Vpc.Vpc) m ()
   vpcs = concatMapC $ \r ->
-    maybe [] (map (Amazonka.envRegion env,)) (DescribeVpcs.vpcs r)
+    maybe [] (map (Amazonka.region env,)) (DescribeVpcs.vpcs r)
 
 ingestVpcs :: MonadIO m => Pool -> ConduitT (Amazonka.Region, Vpc.Vpc) Void m ()
 ingestVpcs pool = mapM_C ingestInstance

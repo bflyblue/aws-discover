@@ -31,9 +31,9 @@ fetchAllEc2Instances env = do
   instances :: MonadResource m => ConduitM Reservation.Reservation (Amazonka.Region, Text, Instance.Instance) m ()
   instances =
     concatMapC $ \r ->
-      maybe [] (map (Amazonka.envRegion env,Reservation.ownerId r,)) (Reservation.instances r)
+      maybe [] (map (Amazonka.region env,Reservation.ownerId r,)) (Reservation.instances r)
 
-ingestInstances :: MonadIO m => Pool -> ConduitT (Amazonka.Region, Amazonka.Text, Instance.Instance) Void m ()
+ingestInstances :: MonadIO m => Pool -> ConduitT (Amazonka.Region, Text, Instance.Instance) Void m ()
 ingestInstances pool = mapM_C ingestInstance
  where
   ingestInstance :: MonadIO m => (Amazonka.Region, Text, Instance.Instance) -> m ()

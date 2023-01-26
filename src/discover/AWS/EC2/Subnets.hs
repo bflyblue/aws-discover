@@ -20,7 +20,7 @@ import Database
 fetchAllSubnets :: MonadResource m => Amazonka.Env -> ConduitM () (Amazonka.Region, Subnet.Subnet) m ()
 fetchAllSubnets env = do
   Amazonka.paginate env DescribeSubnets.newDescribeSubnets
-    .| concatMapC (map (Amazonka.envRegion env,) . concat . DescribeSubnets.subnets)
+    .| concatMapC (map (Amazonka.region env,) . concat . DescribeSubnets.subnets)
 
 ingestSubnets :: MonadIO m => Pool -> ConduitT (Amazonka.Region, Subnet.Subnet) Void m ()
 ingestSubnets pool = mapM_C ingestSubnet

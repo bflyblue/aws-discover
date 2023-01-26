@@ -10,6 +10,7 @@ import qualified Amazonka.Lambda.Types.FunctionConfiguration as FunctionConfigur
 import qualified Amazonka.Lambda.Types.ImageConfigError as ImageConfigError
 import qualified Amazonka.Lambda.Types.ImageConfigResponse as ImageConfigResponse
 import qualified Amazonka.Lambda.Types.Layer as Layer
+import qualified Amazonka.Lambda.Types.SnapStartResponse as SnapStartResponse
 import qualified Amazonka.Lambda.Types.TracingConfigResponse as TracingConfigResponse
 import qualified Amazonka.Lambda.Types.VpcConfigResponse as VpcConfigResponse
 
@@ -32,6 +33,9 @@ instance ToJSON EnvironmentError.EnvironmentError where
   toEncoding = genericToEncoding defaultOptions
 
 instance ToJSON EnvironmentResponse.EnvironmentResponse where
+  toEncoding = genericToEncoding defaultOptions
+
+instance ToJSON SnapStartResponse.SnapStartResponse where
   toEncoding = genericToEncoding defaultOptions
 
 instance ToJSON TracingConfigResponse.TracingConfigResponse where

@@ -1,21 +1,3 @@
-CREATE FUNCTION has_label(x record, lbl text) RETURNS boolean AS $$
-BEGIN
-  RETURN x.labels @> array[lbl];
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE FUNCTION has_labels(x record, lbls text[]) RETURNS boolean AS $$
-BEGIN
-  RETURN x.labels @> lbl;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE FUNCTION has_props(x record, props jsonb) RETURNS boolean AS $$
-BEGIN
-  RETURN x.properties @> props;
-END;
-$$ LANGUAGE plpgsql;
-
 CREATE TYPE tag AS (
 	key text,
 	value text
@@ -49,14 +31,27 @@ CREATE INDEX edge_props ON edges USING gin (properties);
 CREATE INDEX edge_a ON edges (a);
 CREATE INDEX edge_b ON edges (b);
 
+-- CREATE VIEW tags AS
+--  SELECT a.id,
+--     (a.tag).key AS key,
+--     (a.tag).value AS value
+--    FROM ( SELECT nodes.id,
+--             jsonb_populate_recordset(NULL::tag, nodes.properties -> 'tags') AS tag
+--            FROM nodes
+--           WHERE (jsonb_typeof((nodes.properties -> 'tags')) = 'array')) a;
+
 CREATE VIEW tags AS
- SELECT a.id,
-    (a.tag).key AS key,
-    (a.tag).value AS value
-   FROM ( SELECT nodes.id,
-            jsonb_populate_recordset(NULL::tag, nodes.properties -> 'tags') AS tag
-           FROM nodes
-          WHERE (jsonb_typeof((nodes.properties -> 'tags')) = 'array')) a;
+  SELECT a.id,
+      (a.tag).key AS key,
+      (a.tag).value AS value
+     FROM ( SELECT nodes.id,
+              jsonb_populate_recordset(NULL::tag,
+                  CASE
+                      WHEN (nodes.properties -> 'tags'::text) IS NULL THEN nodes.properties -> 'resourceTags'::text
+                      ELSE nodes.properties -> 'tags'::text
+                  END) AS tag
+             FROM nodes
+            WHERE jsonb_typeof(nodes.properties -> 'tags'::text) = 'array'::text OR jsonb_typeof(nodes.properties -> 'resourceTags'::text) = 'array'::text) a;
 
 CREATE VIEW environments AS
  SELECT a.id,
