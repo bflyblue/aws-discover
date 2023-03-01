@@ -135,14 +135,56 @@ CREATE VIEW security_groups AS
     ( SELECT tags.value
            FROM tags
           WHERE ((tags.id = nodes.id) AND (tags.key = 'Name'))) AS name,
-    (nodes.properties ->> 'description') AS description,
+    (nodes.properties ->> 'description') AS description
+   FROM nodes
+  WHERE (nodes.labels @> '{SecurityGroup}');
+
+CREATE VIEW ip_permissions AS
+ SELECT
+    nodes.id,
     perms."fromPort",
     perms."toPort",
     perms."ipProtocol",
     ranges."cidrIp"
    FROM nodes, 
-        jsonb_to_recordset(jsonb_default(nodes.properties->'ipPermissions', '[]')) AS perms("toPort" int, "fromPort" int, "ipRanges" jsonb, "ipProtocol" text),
+        jsonb_to_recordset(jsonb_default(nodes.properties->'ipPermissions', '[]')) AS perms("toPort" int, "fromPort" int, "ipRanges" jsonb, "ipv6Ranges" jsonb, "ipProtocol" text),
         jsonb_to_recordset(jsonb_default(perms."ipRanges", '[]')) AS ranges("cidrIp" text)
+  WHERE (nodes.labels @> '{SecurityGroup}');
+
+CREATE VIEW ipv6_permissions AS
+ SELECT
+    nodes.id,
+    perms."fromPort",
+    perms."toPort",
+    perms."ipProtocol",
+    ranges."cidrIpv6"
+   FROM nodes, 
+        jsonb_to_recordset(jsonb_default(nodes.properties->'ipPermissions', '[]')) AS perms("toPort" int, "fromPort" int, "ipRanges" jsonb, "ipv6Ranges" jsonb, "ipProtocol" text),
+        jsonb_to_recordset(jsonb_default(perms."ipv6Ranges", '[]')) AS ranges("cidrIpv6" text)
+  WHERE (nodes.labels @> '{SecurityGroup}');
+
+CREATE VIEW ip_permissions_egress AS
+ SELECT
+    nodes.id,
+    perms."fromPort",
+    perms."toPort",
+    perms."ipProtocol",
+    ranges."cidrIp"
+   FROM nodes, 
+        jsonb_to_recordset(jsonb_default(nodes.properties->'ipPermissionsEgress', '[]')) AS perms("toPort" int, "fromPort" int, "ipRanges" jsonb, "ipv6Ranges" jsonb, "ipProtocol" text),
+        jsonb_to_recordset(jsonb_default(perms."ipRanges", '[]')) AS ranges("cidrIp" text)
+  WHERE (nodes.labels @> '{SecurityGroup}');
+
+CREATE VIEW ipv6_permissions_egress AS
+ SELECT
+    nodes.id,
+    perms."fromPort",
+    perms."toPort",
+    perms."ipProtocol",
+    ranges."cidrIpv6"
+   FROM nodes, 
+        jsonb_to_recordset(jsonb_default(nodes.properties->'ipPermissionsEgress', '[]')) AS perms("toPort" int, "fromPort" int, "ipRanges" jsonb, "ipv6Ranges" jsonb, "ipProtocol" text),
+        jsonb_to_recordset(jsonb_default(perms."ipv6Ranges", '[]')) AS ranges("cidrIpv6" text)
   WHERE (nodes.labels @> '{SecurityGroup}');
 
 CREATE VIEW lambdas AS
