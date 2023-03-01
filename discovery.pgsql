@@ -116,6 +116,35 @@ CREATE VIEW subnets AS
    FROM nodes
   WHERE (nodes.labels @> '{Subnet}');
 
+CREATE FUNCTION jsonb_default(a jsonb, dflt jsonb) RETURNS jsonb AS $$
+BEGIN
+  RETURN CASE
+    WHEN a='null'::jsonb THEN dflt
+    WHEN a IS NULL THEN dflt
+    ELSE a
+  END;
+END;
+$$ IMMUTABLE LANGUAGE plpgsql;
+
+CREATE VIEW security_groups AS
+ SELECT nodes.id,
+    (nodes.properties ->> 'resourceARN') AS "arn",
+    (nodes.properties ->> 'groupId') AS "groupId",
+    (nodes.properties ->> 'ownerId') AS "ownerId",
+    (nodes.properties ->> 'region') AS "region",
+    ( SELECT tags.value
+           FROM tags
+          WHERE ((tags.id = nodes.id) AND (tags.key = 'Name'))) AS name,
+    (nodes.properties ->> 'description') AS description,
+    perms."fromPort",
+    perms."toPort",
+    perms."ipProtocol",
+    ranges."cidrIp"
+   FROM nodes, 
+        jsonb_to_recordset(jsonb_default(nodes.properties->'ipPermissions', '[]')) AS perms("toPort" int, "fromPort" int, "ipRanges" jsonb, "ipProtocol" text),
+        jsonb_to_recordset(jsonb_default(perms."ipRanges", '[]')) AS ranges("cidrIp" text)
+  WHERE (nodes.labels @> '{SecurityGroup}');
+
 CREATE VIEW lambdas AS
  SELECT nodes.id,
     (nodes.properties ->> 'resourceARN') AS "arn",
