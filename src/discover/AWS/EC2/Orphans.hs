@@ -27,16 +27,22 @@ import qualified Amazonka.EC2.Types.InstanceNetworkInterfaceAssociation as Insta
 import qualified Amazonka.EC2.Types.InstanceNetworkInterfaceAttachment as InstanceNetworkInterfaceAttachment
 import qualified Amazonka.EC2.Types.InstancePrivateIpAddress as InstancePrivateIpAddress
 import qualified Amazonka.EC2.Types.InstanceState as InstanceState
+import qualified Amazonka.EC2.Types.IpPermission as IpPermission
+import qualified Amazonka.EC2.Types.IpRange as IpRange
+import qualified Amazonka.EC2.Types.Ipv6Range as Ipv6Range
 import qualified Amazonka.EC2.Types.LicenseConfiguration as LicenseConfiguration
 import qualified Amazonka.EC2.Types.Monitoring as Monitoring
 import qualified Amazonka.EC2.Types.Placement as Placement
+import qualified Amazonka.EC2.Types.PrefixListId as PrefixListId
 import qualified Amazonka.EC2.Types.PrivateDnsNameOptionsOnLaunch as PrivateDnsNameOptionsOnLaunch
 import qualified Amazonka.EC2.Types.PrivateDnsNameOptionsResponse as PrivateDnsNameOptionsResponse
 import qualified Amazonka.EC2.Types.ProductCode as ProductCode
+import qualified Amazonka.EC2.Types.SecurityGroup as SecurityGroup
 import qualified Amazonka.EC2.Types.StateReason as StateReason
 import qualified Amazonka.EC2.Types.Subnet as Subnet
 import qualified Amazonka.EC2.Types.SubnetCidrBlockState as SubnetCidrBlockState
 import qualified Amazonka.EC2.Types.SubnetIpv6CidrBlockAssociation as SubnetIpv6CidrBlockAssociation
+import qualified Amazonka.EC2.Types.UserIdGroupPair as UserIdGroupPair
 import qualified Amazonka.EC2.Types.Vpc as Vpc
 import qualified Amazonka.EC2.Types.VpcCidrBlockAssociation as VpcCidrBlockAssociation
 import qualified Amazonka.EC2.Types.VpcCidrBlockState as VpcCidrBlockState
@@ -108,6 +114,15 @@ instance ToJSON InstancePrivateIpAddress.InstancePrivateIpAddress where
 instance ToJSON HibernationOptions.HibernationOptions where
   toEncoding = genericToEncoding defaultOptions
 
+instance ToJSON IpPermission.IpPermission where
+  toEncoding = genericToEncoding defaultOptions
+
+instance ToJSON IpRange.IpRange where
+  toEncoding = genericToEncoding defaultOptions
+
+instance ToJSON Ipv6Range.Ipv6Range where
+  toEncoding = genericToEncoding defaultOptions
+
 instance ToJSON LicenseConfiguration.LicenseConfiguration where
   toEncoding = genericToEncoding defaultOptions
 
@@ -115,6 +130,9 @@ instance ToJSON Monitoring.Monitoring where
   toEncoding = genericToEncoding defaultOptions
 
 instance ToJSON Placement.Placement where
+  toEncoding = genericToEncoding defaultOptions
+
+instance ToJSON PrefixListId.PrefixListId where
   toEncoding = genericToEncoding defaultOptions
 
 instance ToJSON PrivateDnsNameOptionsOnLaunch.PrivateDnsNameOptionsOnLaunch where
@@ -132,6 +150,9 @@ instance ToJSON StateReason.StateReason where
 instance ToJSON SubnetCidrBlockState.SubnetCidrBlockState where
   toEncoding = genericToEncoding defaultOptions
 
+instance ToJSON SecurityGroup.SecurityGroup where
+  toEncoding = genericToEncoding defaultOptions
+
 instance ToJSON Subnet.Subnet where
   toEncoding = genericToEncoding defaultOptions
 
@@ -139,6 +160,9 @@ instance ToJSON SubnetIpv6CidrBlockAssociation.SubnetIpv6CidrBlockAssociation wh
   toEncoding = genericToEncoding defaultOptions
 
 instance ToJSON EC2.Tag where
+  toEncoding = genericToEncoding defaultOptions
+
+instance ToJSON UserIdGroupPair.UserIdGroupPair where
   toEncoding = genericToEncoding defaultOptions
 
 instance ToJSON Vpc.Vpc where

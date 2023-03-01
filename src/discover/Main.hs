@@ -5,9 +5,11 @@
 module Main where
 
 import qualified AWS.EC2.Instances
+import qualified AWS.EC2.SecurityGroups
 import qualified AWS.EC2.Subnets
 import qualified AWS.EC2.Vpcs
 import qualified AWS.Lambda.Functions
+import qualified AWS.RDS.Instances
 import qualified AWS.ResourceGroupsTagging.Resources
 import qualified Amazonka
 import Config (readConfigFile)
@@ -33,9 +35,11 @@ main = do
   runConcurrently $
     sequenceA_ @[]
       [ Concurrently (AWS.EC2.Instances.discover env cfg)
-      , Concurrently (AWS.EC2.Vpcs.discover env cfg)
+      , Concurrently (AWS.EC2.SecurityGroups.discover env cfg)
       , Concurrently (AWS.EC2.Subnets.discover env cfg)
+      , Concurrently (AWS.EC2.Vpcs.discover env cfg)
       , Concurrently (AWS.Lambda.Functions.discover env cfg)
+      , Concurrently (AWS.RDS.Instances.discover env cfg)
       , Concurrently (AWS.ResourceGroupsTagging.Resources.discover env cfg)
       ]
 

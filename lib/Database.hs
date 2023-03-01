@@ -51,48 +51,48 @@ run :: Pool.Pool -> Db a -> IO a
 run pool a = either (error . show) return =<< Pool.use pool a
 
 createNode :: Labels -> Properties -> Db Node
-createNode labels props = Hasql.statement () statement
+createNode lbls prop = Hasql.statement () statement
  where
   statement = Hasql.Statement sql encoder decoder True
   sql = "insert into nodes (labels, properties) values ($1, $2) returning row(id, labels, properties)"
   encoder =
-    (labels >$ E.param (E.nonNullable labelsEncoder))
-      <> (props >$ E.param (E.nonNullable propertiesEncoder))
+    (lbls >$ E.param (E.nonNullable labelsEncoder))
+      <> (prop >$ E.param (E.nonNullable propertiesEncoder))
   decoder =
     D.singleRow (D.column (D.nonNullable nodeDecoder))
 
 createEdge :: Labels -> Properties -> Id Node -> Id Node -> Db Edge
-createEdge labels props a b = Hasql.statement () statement
+createEdge lbls prop a b = Hasql.statement () statement
  where
   statement = Hasql.Statement sql encoder decoder True
   sql = "insert into edges (labels, properties, a, b) values ($1, $2, $3, $4) returning row(id, labels, properties, a, b)"
   encoder =
-    (labels >$ E.param (E.nonNullable labelsEncoder))
-      <> (props >$ E.param (E.nonNullable propertiesEncoder))
+    (lbls >$ E.param (E.nonNullable labelsEncoder))
+      <> (prop >$ E.param (E.nonNullable propertiesEncoder))
       <> (a >$ E.param (E.nonNullable idEncoder))
       <> (b >$ E.param (E.nonNullable idEncoder))
   decoder =
     D.singleRow (D.column (D.nonNullable edgeDecoder))
 
 addLabels :: forall a. HasTable a => Labels -> [Id a] -> Db ()
-addLabels labels nodes =
-  unless (HashSet.null $ unLabels labels) $ Hasql.statement () statement
+addLabels lbls nodes =
+  unless (HashSet.null $ unLabels lbls) $ Hasql.statement () statement
  where
   statement = Hasql.Statement sql encoder decoder True
   sql = "update " <> tableName @a <> " set labels = array(select distinct unnest(labels || $1)) where id = any($2)"
   encoder =
-    (labels >$ E.param (E.nonNullable labelsEncoder))
+    (lbls >$ E.param (E.nonNullable labelsEncoder))
       <> (nodes >$ E.param (E.nonNullable (E.foldableArray (E.nonNullable idEncoder))))
   decoder = D.noResult
 
 addProperties :: forall a. HasTable a => Properties -> [Id a] -> Db ()
-addProperties props nodes =
-  unless (KeyMap.null $ unProperties props) $ Hasql.statement () statement
+addProperties prop nodes =
+  unless (KeyMap.null $ unProperties prop) $ Hasql.statement () statement
  where
   statement = Hasql.Statement sql encoder decoder True
   sql = "update " <> tableName @a <> " set properties = properties || $1 where id = any($2)"
   encoder =
-    (props >$ E.param (E.nonNullable propertiesEncoder))
+    (prop >$ E.param (E.nonNullable propertiesEncoder))
       <> (nodes >$ E.param (E.nonNullable (E.foldableArray (E.nonNullable idEncoder))))
   decoder = D.noResult
 
@@ -121,36 +121,36 @@ merged (Created a) = a
 merged (Matched a) = a
 
 mergeNode :: Labels -> Properties -> Db (Merge [Node])
-mergeNode labels props = do
-  ns <- matchNode (hasLabels labels .&. hasProperties props)
+mergeNode lbls prop = do
+  ns <- matchNode (hasLabels lbls .&. hasProperties prop)
   case ns of
     [] -> do
-      n <- createNode labels props
+      n <- createNode lbls prop
       pure (Created [n])
     xs -> pure (Matched xs)
 
 mergeEdge :: Labels -> Properties -> Id Node -> Id Node -> Db (Merge [Edge])
-mergeEdge labels props a b = do
-  ns <- matchEdge (hasLabels labels .&. hasProperties props) (Just a) (Just b)
+mergeEdge lbls prop a b = do
+  ns <- matchEdge (hasLabels lbls .&. hasProperties prop) (Just a) (Just b)
   case ns of
     [] -> do
-      n <- createEdge labels props a b
+      n <- createEdge lbls prop a b
       pure (Created [n])
     xs -> pure (Matched xs)
 
 mergeEdge_ :: Labels -> Properties -> Id Node -> Id Node -> Hasql.Session ()
-mergeEdge_ labels props a b = void $ mergeEdge labels props a b
+mergeEdge_ lbls prop a b = void $ mergeEdge lbls prop a b
 
 upsertNode :: (Text, Text) -> Labels -> Properties -> Db (Id Node)
-upsertNode (keyspace, key) labels props = Hasql.statement () statement
+upsertNode (keyspace, key) lbls prop = Hasql.statement () statement
  where
   statement = Hasql.Statement sql encoder decoder True
   sql = "insert into nodes (keyspace, key, labels, properties) values ($1, $2, $3, $4) on conflict (keyspace, key) do update set labels = array(select distinct unnest(nodes.labels || EXCLUDED.labels)), properties = nodes.properties || EXCLUDED.properties returning id"
   encoder =
     (keyspace >$ E.param (E.nonNullable E.text))
       <> (key >$ E.param (E.nonNullable E.text))
-      <> (labels >$ E.param (E.nonNullable labelsEncoder))
-      <> (props >$ E.param (E.nonNullable propertiesEncoder))
+      <> (lbls >$ E.param (E.nonNullable labelsEncoder))
+      <> (prop >$ E.param (E.nonNullable propertiesEncoder))
   decoder =
     D.singleRow (D.column (D.nonNullable idDecoder))
 

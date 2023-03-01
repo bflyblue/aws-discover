@@ -53,10 +53,13 @@ executable aws-discover
   other-modules:
     AWS.EC2.Instances
     AWS.EC2.Orphans
+    AWS.EC2.SecurityGroups
     AWS.EC2.Subnets
     AWS.EC2.Vpcs
     AWS.Lambda.Functions
     AWS.Lambda.Orphans
+    AWS.RDS.Instances
+    AWS.RDS.Orphans
     AWS.ResourceGroupsTagging.Orphans
     AWS.ResourceGroupsTagging.Resources
 

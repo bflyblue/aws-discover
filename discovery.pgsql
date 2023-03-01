@@ -31,27 +31,31 @@ CREATE INDEX edge_props ON edges USING gin (properties);
 CREATE INDEX edge_a ON edges (a);
 CREATE INDEX edge_b ON edges (b);
 
--- CREATE VIEW tags AS
---  SELECT a.id,
---     (a.tag).key AS key,
---     (a.tag).value AS value
---    FROM ( SELECT nodes.id,
---             jsonb_populate_recordset(NULL::tag, nodes.properties -> 'tags') AS tag
---            FROM nodes
---           WHERE (jsonb_typeof((nodes.properties -> 'tags')) = 'array')) a;
+-- CREATE VIEW nodemeta AS
+--  SELECT nodes.id,
+--     COALESCE(( SELECT tags.value
+--            FROM tags
+--           WHERE tags.id = nodes.id AND tags.key = 'Name'::text), nodes.properties ->> 'functionName'::text) AS name
+--    FROM nodes;
 
 CREATE VIEW tags AS
-  SELECT a.id,
-      (a.tag).key AS key,
-      (a.tag).value AS value
-     FROM ( SELECT nodes.id,
-              jsonb_populate_recordset(NULL::tag,
-                  CASE
-                      WHEN (nodes.properties -> 'tags'::text) IS NULL THEN nodes.properties -> 'resourceTags'::text
-                      ELSE nodes.properties -> 'tags'::text
-                  END) AS tag
-             FROM nodes
-            WHERE jsonb_typeof(nodes.properties -> 'tags'::text) = 'array'::text OR jsonb_typeof(nodes.properties -> 'resourceTags'::text) = 'array'::text) a;
+ SELECT a.id,
+    (a.tag).key AS key,
+    (a.tag).value AS value
+   FROM ( SELECT nodes.id,
+            jsonb_populate_recordset(NULL::tag, nodes.properties -> 'resourceTags'::text) AS tag
+           FROM nodes
+          WHERE nodes.labels @> '{Resource}'::text[]
+        UNION
+         SELECT nodes.id,
+            jsonb_populate_recordset(NULL::tag, nodes.properties -> 'tagList'::text) AS tag
+           FROM nodes
+          WHERE nodes.labels @> '{DbInstance}'::text[] AND jsonb_typeof(nodes.properties -> 'tagList'::text) = 'array'::text
+        UNION
+         SELECT nodes.id,
+            jsonb_populate_recordset(NULL::tag, nodes.properties -> 'tags'::text) AS tag
+           FROM nodes
+          WHERE jsonb_typeof(nodes.properties -> 'tags'::text) = 'array'::text) a;
 
 CREATE VIEW environments AS
  SELECT a.id,
@@ -78,7 +82,7 @@ CREATE VIEW ec2_instances AS
     (nodes.properties ->> 'privateDnsName') AS "privateDnsName",
     (nodes.properties ->> 'publicIpAddress') AS "publicIpAddress",
     (nodes.properties ->> 'publicDnsName') AS "publicDnsName",
-    ((nodes.properties ->> 'launchTime'))::timestamp with time zone AS "launchTime"
+    (nodes.properties ->> 'launchTime') AS "launchTime"
    FROM nodes
   WHERE (nodes.labels @> '{Instance}');
 
@@ -127,3 +131,26 @@ CREATE VIEW lambdas AS
     (nodes.properties -> 'vpcConfig' ->> 'vpcId') AS "vpcId"
    FROM nodes
   WHERE (nodes.labels @> '{Lambda}');
+
+CREATE VIEW db_instances AS
+ SELECT nodes.id,
+    (nodes.properties ->> 'resourceARN') AS "arn",
+    (nodes.properties ->> 'dbInstanceIdentifier') AS "dbInstanceIdentifier",
+    (nodes.properties ->> 'dbName') AS "dbName",
+    ( SELECT tags.value
+           FROM tags
+          WHERE ((tags.id = nodes.id) AND (tags.key = 'Name'))) AS name,
+    (nodes.properties ->> 'engine') AS "engine",
+    (nodes.properties ->> 'engineVersion') AS "engineVersion",
+    (nodes.properties -> 'endpoint' ->> 'address') AS "endpointAddress",
+    (nodes.properties -> 'endpoint' ->> 'port') AS "endpointPort",
+    (nodes.properties -> 'listenerEndpoint' ->> 'address') AS "listenerEndpointAddress",
+    (nodes.properties -> 'listenerEndpoint' ->> 'port') AS "listenerEndpointPort",
+    (nodes.properties ->> 'dbInstanceClass') AS "dbInstanceClass",
+    (nodes.properties ->> 'dbInstanceStatus') AS "dbInstanceStatus",
+    (nodes.properties ->> 'dbClusterIdentifier') AS "dbClusterIdentifier",
+    (nodes.properties ->> 'availabilityZone') AS "availabilityZone",
+    (nodes.properties ->> 'multiAZ') AS "multiAZ",
+    (nodes.properties ->> 'iops') AS "iops"
+   FROM nodes
+  WHERE (nodes.labels @> '{DbInstance}');
