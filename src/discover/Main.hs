@@ -14,8 +14,10 @@ import qualified AWS.ResourceGroupsTagging.Resources
 import qualified Amazonka
 import Config (readConfigFile)
 import Control.Concurrent.Async
+import Control.Lens ((^..))
 import Control.Monad (forM_)
-import Data.Aeson (KeyValue (..), Value (Array), object)
+import Data.Aeson (Value (Array))
+import Data.Aeson.Lens (key, values)
 import Data.Foldable (Foldable (toList), sequenceA_)
 import Database
 import qualified Hasql.Session as Session
@@ -47,17 +49,25 @@ main = do
     run pool $ do
       eachMatchNode_ (hasLabel "Vpc") $ \v -> do
         forM_ (getProperty "vpcId" (nodeProperties v)) $ \vpcId -> do
-          eachMatchNode_ (hasLabel "Instance" .&. hasProperties (properties ["vpcId" .= vpcId])) $ \x ->
+          eachMatchNode_ (hasLabel "Instance" .&. props .- "vpcId" .=. lit vpcId) $ \x ->
             mergeEdge_ ["InVpc"] (properties []) (nodeId x) (nodeId v)
-          eachMatchNode_ (hasLabel "Lambda" .&. hasProperties (properties ["vpcConfig" .= object ["vpcId" .= vpcId]])) $ \x ->
+          eachMatchNode_ (hasLabel "Lambda" .&. props .- "vpcConfig" .- "vpcId" .=. lit vpcId) $ \x ->
             mergeEdge_ ["InVpc"] (properties []) (nodeId x) (nodeId v)
-          eachMatchNode_ (hasLabel "Subnet" .&. hasProperties (properties ["vpcId" .= vpcId])) $ \x ->
+          eachMatchNode_ (hasLabel "Subnet" .&. props .- "vpcId" .=. lit vpcId) $ \x ->
             mergeEdge_ ["HasSubnet"] (properties []) (nodeId v) (nodeId x)
 
       eachMatchNode_ (hasLabel "Subnet") $ \s ->
         forM_ (getProperty "subnetId" (nodeProperties s)) $ \subnetId -> do
           eachMatchNode_ (hasLabel "Lambda" .&. props .- "vpcConfig" .- "subnetIds" .@>. lit subnetId) $ \x ->
             mergeEdge_ ["HasSubnet"] (properties []) (nodeId x) (nodeId s)
+          eachMatchNode_ (hasLabel "Instance" .&. props .- "subnetId" .=. lit subnetId) $ \x ->
+            mergeEdge_ ["HasSubnet"] (properties []) (nodeId x) (nodeId s)
+
+      eachMatchNode_ (hasLabel "Instance") $ \i -> do
+        let groups = fromProperties (nodeProperties i) ^.. key "securityGroups" . values . key "groupId"
+        forM_ groups $ \groupId -> do
+          eachMatchNode_ (hasLabel "SecurityGroup" .&. props .- "groupId" .=. lit groupId) $ \g -> do
+            mergeEdge_ ["HasSecurityGroup"] (properties []) (nodeId i) (nodeId g)
 
 eachMatchNode_ :: Match Bool -> (Node -> Session.Session a) -> Session.Session ()
 eachMatchNode_ p a = matchNode p >>= mapM_ a

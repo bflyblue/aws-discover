@@ -131,6 +131,9 @@ toProperties :: Aeson.Value -> Properties
 toProperties (Aeson.Object o) = Properties o
 toProperties _ = error "Only objects accepted"
 
+fromProperties :: Properties -> Aeson.Value
+fromProperties = Aeson.Object . unProperties
+
 instance IsList Labels where
   type Item Labels = Label
   fromList = Labels . HashSet.fromList

@@ -88,6 +88,8 @@ executable aws-discover
     , hasql-dynamic-statements        >=0.3.1.2
     , hasql-implicits                 >=0.1
     , hasql-pool
+    , lens
+    , lens-aeson
     , scientific
     , text
     , time

@@ -81,7 +81,7 @@ infix 6 .@>.
 infix 6 .<@.
 
 cmp :: Cmp -> Snippet.Snippet
-cmp Eq = "=="
+cmp Eq = "="
 cmp Neq = "!="
 cmp Lt = "<"
 cmp Lte = "<="
