@@ -11,6 +11,7 @@ import qualified AWS.EC2.Vpcs
 import qualified AWS.Lambda.Functions
 import qualified AWS.RDS.Instances
 import qualified AWS.ResourceGroupsTagging.Resources
+import qualified AWS.SecretsManager.Secrets
 import qualified Amazonka
 import Config (readConfigFile)
 import Control.Concurrent.Async
@@ -44,6 +45,8 @@ main = do
       , Concurrently (AWS.RDS.Instances.discover env cfg)
       , Concurrently (AWS.ResourceGroupsTagging.Resources.discover env cfg)
       ]
+
+  AWS.SecretsManager.Secrets.discover env cfg
 
   withDb cfg $ \pool ->
     run pool $ do

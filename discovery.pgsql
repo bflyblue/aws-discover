@@ -66,6 +66,17 @@ CREATE VIEW environments AS
            FROM nodes
           WHERE (jsonb_typeof((nodes.properties -> 'environment' -> 'variables')) = 'object')) a;
 
+CREATE VIEW secrets AS
+ SELECT e.a AS id,
+    sn.id AS "secretId",
+    s.key,
+    s.value
+   FROM nodes sn,
+    LATERAL jsonb_each(sn.properties -> 'secrets'::text) s(key, value),
+    edges e
+  WHERE sn.labels @> '{Secrets}'::text[] AND e.labels @> '{EnvRefersTo}'::text[] AND e.b = sn.id;
+
+
 CREATE VIEW ec2_instances AS
  SELECT nodes.id,
     (nodes.properties ->> 'resourceARN') AS "arn",
