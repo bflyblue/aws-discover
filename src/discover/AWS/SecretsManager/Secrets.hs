@@ -8,7 +8,6 @@
 
 module AWS.SecretsManager.Secrets where
 
-import AWS.SecretsManager.Orphans ()
 import qualified Amazonka
 import qualified Amazonka.SecretsManager as SecretsManager
 import qualified Amazonka.SecretsManager.GetSecretValue as GetSecretValue

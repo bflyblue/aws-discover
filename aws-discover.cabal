@@ -62,8 +62,8 @@ executable aws-discover
     AWS.RDS.Orphans
     AWS.ResourceGroupsTagging.Orphans
     AWS.ResourceGroupsTagging.Resources
-    AWS.SecretsManager.Orphans
     AWS.SecretsManager.Secrets
+    Tags
 
   build-depends:
     , aeson
