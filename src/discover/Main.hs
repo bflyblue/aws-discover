@@ -36,6 +36,7 @@ main = do
           , Amazonka.region = Amazonka.Ireland
           }
 
+  -- Discover basic resources
   runConcurrently $
     traverse_ @[]
       Concurrently
@@ -48,7 +49,10 @@ main = do
       , AWS.ResourceGroupsTagging.Resources.discover env cfg
       ]
 
+  -- Discover secrets that are referred to in environment variables
   AWS.SecretsManager.Secrets.discover env cfg
+
+  -- Create nodes for certain tags and link to resources
   Tags.discover cfg "app" "App" "App"
   Tags.discover cfg "env" "Environment" "Environment"
   Tags.discover cfg "team" "Team" "Team"
@@ -56,6 +60,7 @@ main = do
   Tags.discover cfg "service" "Service" "Service"
   Tags.discover cfg "system" "System" "System"
 
+  -- Discover other relationships between resources
   runConcurrently $
     traverse_ @[]
       (Concurrently . withDb cfg . flip run)
