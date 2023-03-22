@@ -4,6 +4,7 @@
 
 module Main where
 
+import qualified AWS.CloudFormation.Stacks
 import qualified AWS.EC2.Instances
 import qualified AWS.EC2.SecurityGroups
 import qualified AWS.EC2.Subnets
@@ -40,7 +41,8 @@ main = do
   runConcurrently $
     traverse_ @[]
       Concurrently
-      [ AWS.EC2.Instances.discover env cfg
+      [ AWS.CloudFormation.Stacks.discover env cfg
+      , AWS.EC2.Instances.discover env cfg
       , AWS.EC2.SecurityGroups.discover env cfg
       , AWS.EC2.Subnets.discover env cfg
       , AWS.EC2.Vpcs.discover env cfg

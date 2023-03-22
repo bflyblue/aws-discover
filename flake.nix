@@ -35,6 +35,7 @@
 
             amazonka-apigateway = amazonkaService "amazonka-apigateway" { };
             amazonka-apigatewayv2 = amazonkaService "amazonka-apigatewayv2" { };
+            amazonka-cloudformation = amazonkaService "amazonka-cloudformation" { };
             amazonka-cloudwatch-logs =
               amazonkaService "amazonka-cloudwatch-logs" { };
             amazonka-ec2 = amazonkaService "amazonka-ec2" { };
