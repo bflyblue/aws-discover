@@ -17,10 +17,10 @@ import qualified Amazonka
 import Config (readConfigFile)
 import Control.Concurrent.Async
 import Control.Lens ((^..))
-import Control.Monad (forM_)
+import Control.Monad (forM_, when)
 import Data.Aeson (Value (Array))
 import Data.Aeson.Lens (key, values)
-import Data.Foldable (Foldable (toList), traverse_)
+import Data.Foldable (Foldable (toList), for_, traverse_)
 import Database
 import qualified Hasql.Session as Session
 import System.IO (stdout)
@@ -69,6 +69,7 @@ main = do
       [ relateInVpc
       , relateHasSubnet
       , relateHasSecurityGroup
+      , relateStackResources
       ]
  where
   relateInVpc = do
@@ -97,8 +98,28 @@ main = do
         eachMatchNode_ (hasLabel "SecurityGroup" .&. props .- "groupId" .=. lit groupId) $ \g -> do
           mergeEdge_ ["HasSecurityGroup"] (properties []) (nodeId i) (nodeId g)
 
+  relateStackResources = do
+    eachMatchNode_ (hasLabel "Stack") $ \s -> do
+      eachMatchEdge_ (hasLabel "HasStackResource") (Just $ nodeId s) Nothing $ \e -> do
+        sr <- getNode (edgeB e)
+        let prop = nodeProperties sr
+        when ("StackResource" `labelIn` nodeLabels sr) $ do
+          for_ (getProperty "physicalResourceId" prop) $ \resourceId -> do
+            for_ (getProperty "region" prop) $ \region -> do
+              case getProperty "resourceType" prop of
+                Just "AWS::Lambda::Function" -> do
+                  eachMatchNode_
+                    (hasLabel "Lambda" .&. props .- "region" .=. lit region .&. props .- "functionName" .=. lit resourceId)
+                    $ \r -> do
+                      mergeEdge_ ["HasResource"] (nodeProperties sr) (nodeId s) (nodeId r)
+                _ -> do
+                  return ()
+
 eachMatchNode_ :: Match Bool -> (Node -> Session.Session a) -> Session.Session ()
-eachMatchNode_ p a = matchNode p >>= mapM_ a
+eachMatchNode_ p act = matchNode p >>= mapM_ act
+
+eachMatchEdge_ :: Match Bool -> Maybe (Id Node) -> Maybe (Id Node) -> (Edge -> Session.Session a) -> Session.Session ()
+eachMatchEdge_ p a b act = matchEdge p a b >>= mapM_ act
 
 array :: (Value -> t) -> ([Value] -> t) -> Value -> t
 array _ f (Array a) = f (toList a)

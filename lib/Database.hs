@@ -102,6 +102,14 @@ matchNode expr = Hasql.dynamicallyParameterizedStatement sql decoder True
   sql = "select row(id, labels, properties) from nodes where " <> match expr
   decoder = D.rowList (D.column (D.nonNullable nodeDecoder))
 
+getNode :: Id Node -> Db Node
+getNode nodeid = Hasql.statement nodeid statement
+ where
+  statement = Hasql.Statement sql encoder decoder True
+  sql = "select row(id, labels, properties) from nodes where id = $1"
+  encoder = E.param (E.nonNullable idEncoder)
+  decoder = D.singleRow (D.column (D.nonNullable nodeDecoder))
+
 matchEdge :: Match Bool -> Maybe (Id Node) -> Maybe (Id Node) -> Db [Edge]
 matchEdge expr a b = Hasql.dynamicallyParameterizedStatement sql decoder True
  where
@@ -161,6 +169,9 @@ toProps a = case toJSON a of
 
 getProperty :: Text -> Properties -> Maybe Value
 getProperty k (Properties p) = KeyMap.lookup (Key.fromText k) p
+
+labelIn :: Text -> Labels -> Bool
+labelIn k l = k `HashSet.member` unLabels l
 
 decodeProperty :: FromJSON a => Text -> Properties -> Maybe a
 decodeProperty k p =

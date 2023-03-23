@@ -1,6 +1,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 module AWS.Lambda.Functions where
@@ -17,16 +18,16 @@ import Data.Aeson ((.=))
 import Data.Foldable (traverse_)
 import Database
 
-fetchAllLambdas :: MonadResource m => Amazonka.Env -> ConduitM () Lambda.FunctionConfiguration m ()
+fetchAllLambdas :: MonadResource m => Amazonka.Env -> ConduitM () (Amazonka.Region, Lambda.FunctionConfiguration) m ()
 fetchAllLambdas env =
   Amazonka.paginate env Lambda.newListFunctions
-    .| concatMapC (concat . ListFunctions.functions)
+    .| concatMapC (concatMap (map (Amazonka.region env,)) . ListFunctions.functions)
 
-ingestLambdas :: MonadIO m => Pool -> ConduitT Lambda.FunctionConfiguration o m ()
+ingestLambdas :: MonadIO m => Pool -> ConduitT (Amazonka.Region, Lambda.FunctionConfiguration) o m ()
 ingestLambdas pool = mapM_C ingestLambda
  where
-  ingestLambda :: MonadIO m => Lambda.FunctionConfiguration -> m ()
-  ingestLambda lambda = liftIO $
+  ingestLambda :: MonadIO m => (Amazonka.Region, Lambda.FunctionConfiguration) -> m ()
+  ingestLambda (region, lambda) = liftIO $
     run pool $ do
       traverse_ (\arn' -> void $ upsertNode ("arn", arn') ["Resource", "Lambda"] (toProps lambda <> meta arn')) arn
    where
@@ -34,6 +35,7 @@ ingestLambdas pool = mapM_C ingestLambda
     meta arn' =
       properties
         [ "resourceARN" .= arn'
+        , "region" .= region
         ]
 
 discover :: Amazonka.Env -> Config -> IO ()

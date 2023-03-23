@@ -1,7 +1,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 module AWS.CloudFormation.Stacks where
@@ -20,16 +20,16 @@ import Data.Text (Text)
 import Data.Traversable (for)
 import Database
 
-fetchAllStackSummaries :: MonadResource m => Amazonka.Env -> ConduitM () StackSummary.StackSummary m ()
+fetchAllStackSummaries :: MonadResource m => Amazonka.Env -> ConduitM () (Amazonka.Region, StackSummary.StackSummary) m ()
 fetchAllStackSummaries env =
   Amazonka.paginate env CloudFormation.newListStacks
-    .| concatMapC (concat . ListStacks.stackSummaries)
+    .| concatMapC (concatMap (map (Amazonka.region env,)) . ListStacks.stackSummaries)
 
-ingestStackSummaries :: MonadIO m => Pool -> ConduitT StackSummary.StackSummary (Text, Id Node) m ()
+ingestStackSummaries :: MonadIO m => Pool -> ConduitT (Amazonka.Region, StackSummary.StackSummary) (Text, Id Node) m ()
 ingestStackSummaries pool = concatMapMC ingestStackSummary
  where
-  ingestStackSummary :: MonadIO m => StackSummary.StackSummary -> m (Maybe (Text, Id Node))
-  ingestStackSummary stack = liftIO $
+  ingestStackSummary :: MonadIO m => (Amazonka.Region, StackSummary.StackSummary) -> m (Maybe (Text, Id Node))
+  ingestStackSummary (region, stack) = liftIO $
     run pool $ do
       for arn $ \arn' -> do
         node <- upsertNode ("arn", arn') ["Resource", "Stack"] (toProps stack <> meta arn')
@@ -39,6 +39,7 @@ ingestStackSummaries pool = concatMapMC ingestStackSummary
     meta arn' =
       properties
         [ "resourceARN" .= arn'
+        , "region" .= region
         ]
 
 discoverStackResources :: MonadIO m => Amazonka.Env -> Config -> ConduitT (Text, Id Node) o m ()
