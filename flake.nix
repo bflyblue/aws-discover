@@ -17,7 +17,7 @@
   };
 
   outputs = { self, nixpkgs, flake-utils, amazonka, ... }:
-    flake-utils.lib.eachDefaultSystem (system:
+    flake-utils.lib.eachSystem [ flake-utils.lib.system.x86_64-linux ] (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
         hlib = pkgs.haskell.lib;
@@ -35,7 +35,8 @@
 
             amazonka-apigateway = amazonkaService "amazonka-apigateway" { };
             amazonka-apigatewayv2 = amazonkaService "amazonka-apigatewayv2" { };
-            amazonka-cloudformation = amazonkaService "amazonka-cloudformation" { };
+            amazonka-cloudformation =
+              amazonkaService "amazonka-cloudformation" { };
             amazonka-cloudwatch-logs =
               amazonkaService "amazonka-cloudwatch-logs" { };
             amazonka-ec2 = amazonkaService "amazonka-ec2" { };
@@ -47,6 +48,8 @@
             amazonka-secretsmanager =
               amazonkaService "amazonka-secretsmanager" { };
             amazonka-xray = amazonkaService "amazonka-xray" { };
+
+            req-conduit = hlib.dontCheck (hlib.unmarkBroken super.req-conduit);
           };
 
         };

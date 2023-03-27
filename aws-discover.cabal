@@ -59,6 +59,7 @@ executable aws-discover
     AWS.EC2.SecurityGroups
     AWS.EC2.Subnets
     AWS.EC2.Vpcs
+    AWS.Lambda.GetFunctions
     AWS.Lambda.Functions
     AWS.Lambda.Orphans
     AWS.RDS.Instances
@@ -87,6 +88,7 @@ executable aws-discover
     , base
     , bytestring
     , conduit
+    , conduit-extra
     , containers
     , exceptions
     , hashable
@@ -96,6 +98,9 @@ executable aws-discover
     , hasql-pool
     , lens
     , lens-aeson
+    , modern-uri
+    , req
+    , req-conduit
     , scientific
     , text
     , time

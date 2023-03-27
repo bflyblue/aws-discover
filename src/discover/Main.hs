@@ -10,6 +10,7 @@ import qualified AWS.EC2.SecurityGroups
 import qualified AWS.EC2.Subnets
 import qualified AWS.EC2.Vpcs
 import qualified AWS.Lambda.Functions
+import qualified AWS.Lambda.GetFunctions
 import qualified AWS.RDS.Instances
 import qualified AWS.ResourceGroupsTagging.Resources
 import qualified AWS.SecretsManager.Secrets
@@ -17,7 +18,7 @@ import qualified Amazonka
 import Config (readConfigFile)
 import Control.Concurrent.Async
 import Control.Lens ((^..))
-import Control.Monad (forM_, when)
+import Control.Monad (when)
 import Data.Aeson (Value (Array))
 import Data.Aeson.Lens (key, values)
 import Data.Foldable (Foldable (toList), for_, traverse_)
@@ -52,6 +53,7 @@ main = do
       ]
 
   -- Discover secrets that are referred to in environment variables
+  -- TODO: only secrets for current owner (env)
   AWS.SecretsManager.Secrets.discover env cfg
 
   -- Create nodes for certain tags and link to resources
@@ -71,10 +73,15 @@ main = do
       , relateHasSecurityGroup
       , relateStackResources
       ]
+
+  -- TODO: only lambdas for current owner (env)
+  -- AWS.Lambda.GetFunctions.getFunctions env cfg
+
+  return ()
  where
   relateInVpc = do
     eachMatchNode_ (hasLabel "Vpc") $ \v -> do
-      forM_ (getProperty "vpcId" (nodeProperties v)) $ \vpcId -> do
+      for_ (getProperty "vpcId" (nodeProperties v)) $ \vpcId -> do
         eachMatchNode_ (hasLabel "Instance" .&. props .- "vpcId" .=. lit vpcId) $ \x ->
           mergeEdge_ ["InVpc"] (properties []) (nodeId x) (nodeId v)
         eachMatchNode_ (hasLabel "Lambda" .&. props .- "vpcConfig" .- "vpcId" .=. lit vpcId) $ \x ->
@@ -82,19 +89,19 @@ main = do
 
   relateHasSubnet = do
     eachMatchNode_ (hasLabel "Subnet") $ \s -> do
-      forM_ (getProperty "subnetId" (nodeProperties s)) $ \subnetId -> do
+      for_ (getProperty "subnetId" (nodeProperties s)) $ \subnetId -> do
         eachMatchNode_ (hasLabel "Lambda" .&. props .- "vpcConfig" .- "subnetIds" .@>. lit subnetId) $ \x ->
           mergeEdge_ ["HasSubnet"] (properties []) (nodeId x) (nodeId s)
         eachMatchNode_ (hasLabel "Instance" .&. props .- "subnetId" .=. lit subnetId) $ \x ->
           mergeEdge_ ["HasSubnet"] (properties []) (nodeId x) (nodeId s)
-      forM_ (getProperty "vpcId" (nodeProperties s)) $ \vpcId -> do
+      for_ (getProperty "vpcId" (nodeProperties s)) $ \vpcId -> do
         eachMatchNode_ (hasLabel "Vpc" .&. props .- "vpcId" .=. lit vpcId) $ \x ->
           mergeEdge_ ["HasSubnet"] (properties []) (nodeId x) (nodeId s)
 
   relateHasSecurityGroup = do
     eachMatchNode_ (hasLabel "Instance") $ \i -> do
       let groups = fromProperties (nodeProperties i) ^.. key "securityGroups" . values . key "groupId"
-      forM_ groups $ \groupId -> do
+      for_ groups $ \groupId -> do
         eachMatchNode_ (hasLabel "SecurityGroup" .&. props .- "groupId" .=. lit groupId) $ \g -> do
           mergeEdge_ ["HasSecurityGroup"] (properties []) (nodeId i) (nodeId g)
 
